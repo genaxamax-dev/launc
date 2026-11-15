@@ -1,0 +1,482 @@
+================================================================
+ ТЕХНИЧЕСКАЯ СПРАВКА ПО ГУ HAVAL M6 (Adayo / MEK-MX8Q)
+ для самостоятельной разработки лаунчера
+----------------------------------------------------------------
+ Составлено: 15.11.2026
+ Источник данных: adb с самого устройства (getprop, dumpsys, pm,
+ разбор APK штатного лаунчера), прошивка рабочая, не менялась.
+ Серийный номер: 151ba80e8294ca4d
+================================================================
+
+
+0. КОРОТКО (самое важное)
+----------------------------------------------------------------
+ * Android 9 (API 28), automotive-сборка, userdebug, adb root доступен.
+ * Экран 1920x720, density 160 dpi ==> 1 dp = 1 px (очень удобно).
+ * Система сообщает область приложения 1920x608: слева 120 px
+   занимает системная панель навигации (Back/Home/Recents),
+   сверху 80 px - статус-бар.
+ * Свой лаунчер = обычное приложение с intent-filter HOME+DEFAULT.
+ * Штатный com.adayo.launcher перехватывает Home => его надо
+   отключать (pm disable-user), иначе ваш лаунчер не станет домашним.
+ * Обычный adb install блокируется фильтром прошивки.
+   Обход: adb shell service call package 195 i32 1  (перед каждой
+   установкой), затем adb install -r -g.
+ * logcat на устройстве пустой (logd не отдаёт записи) - отладка
+   через dumpsys / uiautomator dump / screencap.
+ * Штатные приложения запускаются явными компонентами (см. раздел 5),
+   интеграция с источниками звука - через source-менеджер Adayo
+   (раздел 6), но его классы лежат в системном vdex, не в SDK.
+
+
+1. ЖЕЛЕЗО И ПРОШИВКА
+----------------------------------------------------------------
+ Модель (ro.product.model) ....... MEK-MX8Q
+ Платформа (ro.board.platform) ... imx8 (NXP i.MX8Q), aarch64
+ Ядро ............................ Linux 4.14.98 (сборка 10.10.2023)
+ Android ......................... 9, SDK 28, codename REL
+ Сборка (ro.build.fingerprint) ... Android/mek_8q_car/mek_8q:9/H6.HIGH/
+                                   20190114/dev-keys
+ Build ID ........................ H6.HIGH
+ Тип сборки ...................... userdebug, dev-keys, ro.debuggable=1
+ Security patch .................. 2019-01-05 (старый, не обновлялся)
+ SELinux ......................... Permissive
+ ABI ............................. arm64-v8a, armeabi-v7a, armeabi
+ RAM ............................. 3.7 ГБ всего (~2.5 ГБ занято)
+ /data ........................... 2.8 ГБ (свободно ~2.5 ГБ)
+ /system ......................... 2.6 ГБ, read-only, dm-verity включён
+ MCU ............................. 07.00.00-231010
+ Прошивка (MPU) .................. HM6W16R-V07.00.00-231010
+ Версия Adayo (ro.adayo.version) . V07.00.00
+ Особенности ..................... есть CarService (AAOS),
+                                   android.hardware.type.automotive,
+                                   нет Google Play / GMS,
+                                   есть com.google.android.car.kitchensink
+ Часовой пояс устройства ......... PRC, локаль ru
+
+ Что это значит для разработки:
+ - можно собирать обычный APK под minSdk 26 / targetSdk 28;
+ - нужен только arm64-v8a (остальные ABI для совместимости);
+ - adb root есть, но /system и /vendor писать нельзя (dm-verity);
+ - платформенной подписи нет, поэтому системные permission
+   (INTERNAL_SYSTEM_WINDOW, READ_FRAME_BUFFER, android.car.*) вашему
+   приложению недоступны. Не стройте лаунчер на них.
+
+
+2. ЭКРАН, ПЛОТНОСТЬ, СИСТЕМНЫЕ ПАНЕЛИ
+----------------------------------------------------------------
+ Физический экран ..... 1920 x 720 px
+ Плотность ............ 160 dpi (density 1.0)
+                        ==> 1 dp = 1 px, 1 sp = 1 px
+ Частота .............. 60 Гц, один режим (1920x720@60)
+ Ориентация ........... landscape, rotation 0
+ Display .............. mDisplayId=0, FLAG_SECURE
+
+ Окна SystemUI (рисуются поверх вашего):
+   StatusBar      : [0,0] - [1920,80]   (полоса 80 px сверху)
+   NavigationBar  : [0,0] - [120,720]   (левая вертикальная панель
+                                         120 px: Back/Home/Recents)
+   HVAC-оверлеи   : плавающие окна температур водителя/пассажира
+
+ Что сообщает WindowManager:
+   init=1920x720 160dpi  cur=1920x720  app=1920x608
+   То есть "полезная" область приложения по высоте 608 px,
+   низ 112 px система считает занятым (там же удобно делать док).
+
+ Окно самого лаунчера при этом может быть 1920x720 - Fossify,
+ например, рисует под панелями и сам отступает на 120 px слева.
+
+ Рекомендации:
+ - рабочая зона: x = 120..1920, y = 80..720 (1800 x 640);
+ - если делаете док - нижние 112 px (y = 608..720);
+ - плотность 1.0 => размеры иконок задавайте в px (или dp, это одно
+   и то же), шрифты в sp тоже 1:1;
+ - полноэкранный режим: Activity + WindowInsets, не перекрывайте
+   левую панель навигации - иначе пользователь не нажмёт Home/Back.
+
+
+3. КАК СТАТЬ ДОМАШНИМ ЭКРАНОМ
+----------------------------------------------------------------
+ 3.1. Манифест (минимум):
+
+   <activity
+       android:name=".MainActivity"
+       android:exported="true"
+       android:launchMode="singleTask"
+       android:stateNotNeeded="true"
+       android:excludeFromRecents="true"
+       android:screenOrientation="landscape"
+       android:configChanges="orientation|screenSize|keyboardHidden|uiMode">
+       <intent-filter>
+           <action android:name="android.intent.action.MAIN" />
+           <category android:name="android.intent.category.HOME" />
+           <category android:name="android.intent.category.DEFAULT" />
+       </intent-filter>
+   </activity>
+
+   Категорию LAUNCHER добавлять не обязательно (у Fossify её нет),
+   она лишь показывает лаунчер в списке приложений.
+
+ 3.2. Установить и назначить домашним:
+
+   adb install -r -g app-release.apk        (см. раздел 4 - с обходом)
+   adb shell cmd package set-home-activity \
+       ru.example.carlauncher/.MainActivity
+
+ 3.3. Отключить штатный лаунчер (иначе он забирает Home):
+
+   adb shell pm disable-user --user 0 com.adayo.launcher
+
+   Проверить, кто сейчас домашний:
+   adb shell cmd package resolve-activity \
+       -c android.intent.category.HOME -a android.intent.action.MAIN | head -6
+   adb shell dumpsys activity processes | grep mHomeProcess
+
+ 3.4. Вернуть штатный экран (откат):
+
+   adb shell pm enable com.adayo.launcher
+   adb shell cmd package set-home-activity \
+       com.adayo.launcher/.ui.Launcher_MainActivity
+
+ 3.5. Если ваш лаунчер упал при загрузке, система покажет
+      com.android.settings/.FallbackHome (у него priority -1000).
+      Выбраться можно по adb: am start -n ... или вернуть adayo.
+
+ 3.6. Замечание из практики: после перезагрузки ГУ один раз
+      открылся сервисный экран com.adayo.factory/FactoryMainActivity.
+      Лечится запуском лаунчера (am start). Возможно, реакция на
+      reboot из adb, но проверьте поведение своего лаунчера после
+      холодного старта.
+
+
+4. УСТАНОВКА СВОЕГО APK (обход фильтра прошивки)
+----------------------------------------------------------------
+ Прошивка пропатчена: PackageManagerService разрешает установку
+ только:
+   - штатному магазину (mIsAdayoStore),
+   - пакетам из /system/etc/adayo/pm/FilterAppConfig.txt,
+   - двум зашитым SHA1 сертификатов.
+ Обычный adb install вернёт:
+   INSTALL_FAILED_INVALID_APK: INSTALL_FAILED_APK_NOT_ALLOWED_TO_INSTALL
+
+ Штатный магазин перед установкой вызывает
+ IPackageManager.setIsAdayoApp(true) - это transaction 195.
+ Флаг одноразовый (сбрасывается после установки). Рабочая команда:
+
+   adb shell service call package 195 i32 1
+   adb install -r -g app-release.apk
+
+ Готовый скрипт на ПК: ~/havalm6/install-apk.sh app-release.apk
+ (он же делает service call перед каждой установкой).
+
+ Примечания:
+ - -g сразу выдаёт runtime-разрешения (важно для API 28).
+ - если APK собран как test-only, нужен флаг -t.
+ - обновление своего приложения тем же способом (service call + install -r).
+ - /data доступен на запись, поэтому data-файлы (настройки, БД) вы
+   можете менять и через adb root, как это делалось для Fossify.
+
+
+5. ШТАТНЫЕ ПРИЛОЖЕНИЯ: КОМПОНЕНТЫ ДЛЯ ЗАПУСКА
+----------------------------------------------------------------
+ Запуск из кода:
+   startActivity(new Intent().setComponent(new ComponentName(
+       "com.adayo.ora.radio",
+       "com.adayo.ui.main.Radio_MainActivity")));
+ Или из adb:
+   adb shell am start -n com.adayo.ora.radio/com.adayo.ui.main.Radio_MainActivity
+
+ Проверенные/существующие LAUNCHER-активности:
+
+   Радио (Adayo) .......... com.adayo.ora.radio/com.adayo.ui.main.Radio_MainActivity
+   Медиа (USB/BT) ......... com.adayo.media/com.adayo.ui.main.Media_MainActivity
+   Bluetooth .............. com.adayo.bluetooth/.ui.BT_MainActivity
+   Климат (AC) ............ com.adayo.ac/.AcMainActivity
+   Камера 360 (AVM) ....... com.adayo.avm/.AvmMainActivity
+   Видеорегистратор ....... com.adayo.dvr/.DvrMainActivity
+   Настройки авто (AAOS) .. com.android.car.settings/.common.CarSettingActivity
+   Настройки Adayo ........ com.adayo.settings/.Settings_MainActivity
+   H6CarSettings .......... com.adayo.adayocarsettings/.CarSettingsActivity
+   Настройки Android ...... com.android.settings/.Settings
+   Телефон ................ com.android.car.dialer/.TelecomActivity
+   Радио (AOSP) ........... com.android.car.radio/.CarRadioActivity
+   Заводское меню ......... com.adayo.factory/.FactoryMainActivity
+   Медиасканер ............ com.adayo.service.mediascanner/.MainActivity
+   Системный лог .......... com.adayo.service.log/com.adayo.log.ui.MainActivity
+   Калькулятор ............ com.android.calculator2/.Calculator
+   Календарь .............. com.android.calendar/.AllInOneActivity
+   Часы ................... com.android.deskclock/.DeskClock
+   Галерея ................ com.android.gallery3d/.app.GalleryActivity
+   Видео (Cactus) ......... com.freescale.cactusplayer/.VideoMenu
+   Контакты ............... com.android.contacts/.activities.PeopleActivity
+   Документы .............. com.android.documentsui/.LauncherActivity
+   Почта .................. com.android.email/.activity.Welcome
+   Поиск .................. com.android.quicksearchbox/.SearchActivity
+   KitchenSink (тест AAOS)  com.google.android.car.kitchensink/.KitchenSinkActivity
+   LensPicker ............. com.android.support.car.lenspicker/.LensPickerTrampolineActivity
+   VMS sample ............. com.google.android.car.vms.subscriber/.VmsSubscriberClientSampleActivity
+
+ Полный актуальный список получить так:
+   adb shell cmd package query-activities --brief \
+       -a android.intent.action.MAIN -c android.intent.category.LAUNCHER
+
+ Третий-сторонние, установленные сейчас:
+   org.fossify.home  - Fossify Launcher 1.10.0 (текущий домашний экран)
+   ru.yandex.music   - Яндекс Музыка 2026.07.4 (требует входа)
+
+ Список всех пакетов: adb shell pm list packages   (всего 142)
+ APK пакета: adb shell pm path <package>  ->  adb pull <path>
+
+
+6. ИНТЕГРАЦИЯ С МАШИНОЙ (источники, клавиши, CAN)
+----------------------------------------------------------------
+ 6.1. Source-менеджер Adayo (переключение аудиоисточников)
+   Пакет-сервис: com.adayo.service.sourcemngservice
+   Классы (в системном vdex, не в SDK):
+     com.adayo.proxy.sourcemanager.SourceSwitchManager
+     com.adayo.proxy.sourcemngproxy.ISrcMngProxyClient
+     com.adayo.proxy.sourcemngproxy.ISourceActionCallBack
+     com.adayo.proxy.sourcemngproxy.Beans.SourceInfo
+   Из вашего APK напрямую не слинкуетесь (нет стабов) - либо
+   reflection, либо копирование AIDL-стабов из APK штатного лаунчера
+   (smali -> java), либо через broadcast-и (ниже).
+
+   Broadcast-и, которые шлёт подсистема
+   (список получен разбором APK, на практике не проверялся):
+     com.adayo.action.uisourcechange     (смена UI-источника)
+     com.adayo.action.sourcerealchange   (реальная смена источника)
+     com.adayo.action.frontsourcechange
+     com.adayo.action.sourceUIfinish
+     com.adayo.action.mediainsert / usbinsert / sdinsert / usbsdchange
+     com.adayo.action.screenOffOn
+     com.adayo.action.beep
+     com.adayo.action.timeZoneChanging
+     com.adayo.systemReady
+   Интенты для медиа:
+     com.adayo.intent.action.music / video / photo / usb / ipod / btaudio / terms
+
+   Имена источников (строки в системе), часто нужные:
+     ADAYO_SOURCE_HOME, ADAYO_SOURCE_MEDIA, ADAYO_SOURCE_MULTIMEDIA,
+     ADAYO_SOURCE_RADIO, ADAYO_SOURCE_RADIO_FM, ADAYO_SOURCE_RADIO_AM,
+     ADAYO_SOURCE_BT_AUDIO, ADAYO_SOURCE_BT_PHONE, ADAYO_SOURCE_NAVI,
+     ADAYO_SOURCE_SETTING, ADAYO_SOURCE_AC, ADAYO_SOURCE_AVM,
+     ADAYO_SOURCE_DVR, ADAYO_SOURCE_CAMERA, ADAYO_SOURCE_USB,
+     ADAYO_SOURCE_USB_VIDEO, ADAYO_SOURCE_USB_PHOTO,
+     ADAYO_SOURCE_NET_MUSIC, ADAYO_SOURCE_NET_RADIO,
+     ADAYO_SOURCE_CARPLAY_*, ADAYO_SOURCE_ANDROID_AUTO*,
+     ADAYO_SOURCE_TPMS, ADAYO_SOURCE_CALLCENTER, ADAYO_SOURCE_ASR,
+     ADAYO_SOURCE_VR, ADAYO_SOURCE_SYSTEMUI, ADAYO_SOURCE_NULL.
+   Всего в прошивке ~87 таких констант.
+
+   Свойства (меняются при смене источника, но ненадёжны):
+     adb shell getprop persist.CURRENT_UID
+     adb shell getprop persist.CURRENT_SOURCEID
+   Значение - имя источника, например ADAYO_SOURCE_RADIO.
+   На практике после запуска сторонних activity значения бывают
+   некорректными, поэтому как API не используйте, только для отладки.
+
+ 6.2. Аппаратные клавиши
+   Служба: com.adayo.service.keyevent (KeyEventService, KeyBroadcaster,
+   JNI com.adayo.keyeventjni.IKeyNotifyCB, MCU-прокси
+   com.adayo.mcucommproxy).
+   Физические кнопки и ручки идут через MCU, часть превращается в
+   обычные KeyEvent (Generic.kl), часть - в broadcast-ы.
+   KEYCODE_HOME/BACK/MEDIA_* работают стандартно; перехват Home
+   системой не отдаётся (Home всегда уходит домашнему экрану).
+
+ 6.3. Климат / CAN / данные авто
+   com.adayo.hvacservice, com.adayo.service.canbox,
+   com.adayo.midware.bcmservice, com.adayo.service.shareinfo.
+   В системе есть CarService (boot.car_service_created=1) и
+   android.car, но CarPropertyManager требует android.car.permission.*,
+   которые выдаются только системным/подписанным приложениям.
+   Для обычного APK практичнее: запуск штатных activity + приём
+   broadcast-ов + чтение getprop.
+
+ 6.4. Что штатный лаунчер использовал (по разбору Launcher.apk)
+   com.adayo.proxy.sourcemngproxy, com.adayo.proxy.shareinfo,
+   com.adayo.proxy.systemcommon, com.adayo.proxy.service,
+   com.adayo.service.source, com.adayo.service.setting,
+   com.adayo.service.navi, com.adayo.service.canbox,
+   com.adayo.service.bluetooth, com.adayo.service.mediascanner,
+   com.adayo.service.mcu, com.adayo.service.hal,
+   com.adayo.app.music / hvac / camera / settings / video / picture /
+   tpms / vr, com.adayo.carlife, com.adayo.dvr, com.adayo.fota,
+   com.adayo.personalcenter, com.adayo.bluetooth.pair.action.
+   Его права (для справки, вам недоступны): INTERNAL_SYSTEM_WINDOW,
+   SYSTEM_ALERT_WINDOW, READ_FRAME_BUFFER, MANAGE_APP_TOKENS,
+   REGISTER_WINDOW_MANAGER_LISTENERS, SET_ORIENTATION, GET_TASKS.
+
+
+7. КАК СДЕЛАН ТЕКУЩИЙ ЛАУНЧЕР (для примера и откат)
+----------------------------------------------------------------
+ Установлен Fossify Launcher (org.fossify.home, 1.10.0, ~5 МБ).
+ Домашним стал после:
+   adb shell cmd package set-home-activity org.fossify.home/.activities.MainActivity
+   adb shell pm disable-user --user 0 com.adayo.launcher
+
+ Раскладка Fossify лежит в SQLite:
+   /data/data/org.fossify.home/databases/apps.db
+   таблица home_screen_grid_items
+   (id, left, top, right, bottom, page, package_name, activity_name,
+    title, type, class_name, widget_id, shortcut_id, icon, docked, parent_id)
+   dock = docked=1, top=5; сетка 3 колонки x 6 строк; строки 0..4 -
+   сетка, строка 5 - док.
+   Правка идёт только при остановленном лаунчере (am force-stop),
+   иначе WAL перезапишет изменения. Бэкапы: apps.db.bak-adb, apps.db.bak2.
+
+ Текущие иконки: док - Phone, Я.Музыка, WebView Browser Tester;
+ сетка - Настройки.
+
+ Откат на штатный экран:
+   adb shell pm enable com.adayo.launcher
+   adb shell cmd package set-home-activity \
+       com.adayo.launcher/.ui.Launcher_MainActivity
+ Удалить Fossify: adb uninstall org.fossify.home
+
+ Ваш собственный лаунчер ставится рядом, конфликта с Fossify нет -
+ домашним становится тот, кого назначили set-home-activity.
+
+
+8. ОТЛАДКА И КОМАНДЫ
+----------------------------------------------------------------
+ Проверка фокуса/окна:
+   adb shell dumpsys window | grep mCurrentFocus
+   adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumed"
+
+ Разбор UI (аналог иерархии View):
+   adb shell uiautomator dump /sdcard/ui.xml
+   adb pull /sdcard/ui.xml
+   (у кастомно-рисованных View bounds бывают [0,0][0,0] - это
+    нормально для иконок Fossify, ориентируйтесь на скриншот)
+
+ Скриншот:
+   adb exec-out screencap -p > shot.png
+
+ Запуск/проверка activity:
+   adb shell am start -W -n <pkg>/<Activity>
+   adb shell am force-stop <pkg>
+
+ Пакеты и компоненты:
+   adb shell pm list packages -3          (сторонние)
+   adb shell pm dump <pkg> | grep -E "versionName|flags=|codePath"
+   adb shell cmd package query-activities --brief -a android.intent.action.MAIN \
+       -c android.intent.category.LAUNCHER
+
+ Поиск причины падения без logcat:
+   adb shell dumpsys dropbox --print | tail -100
+   adb shell ls /data/tombstones /data/anr
+
+ adb: устройство требует root для /data; на этом ГУ adb root работает
+ (userdebug). После перезагрузки root слетает - adb root заново.
+
+
+9. ПОДВОДНЫЕ КАМНИ
+----------------------------------------------------------------
+ * logcat пустой (logd формально работает, но записей нет) - не
+   рассчитывайте на него, используйте dropbox/tombstones.
+ * Установка APK блокируется фильтром (раздел 4). Забыли service call -
+   получите INSTALL_FAILED_APK_NOT_ALLOWED_TO_INSTALL.
+ * Штатный лаунчер агрессивно забирает Home. Пока он включён,
+   set-home-activity может «не сработать» (проверено на практике).
+ * /system и /vendor read-only, dm-verity. adb remount не поможет.
+   Ставить свой лаунчер в /system (priv-app) без отключения verity
+   нельзя, а это уже вмешательство в прошивку - лучше не надо.
+ * Платформенной подписи нет: системные permission и внутренние
+   API (в т.ч. android.car в полном объёме) недоступны.
+ * Плотность 1.0: не используйте «телефонные» размеры из макетов
+   (360dp) - получите микроскопический UI. Считайте в px экрана.
+ * Левая панель 120 px системная: если перекрыть - потеряете кнопки
+   Back/Home. Учитывайте insets (getWindowVisibleDisplayFrame или
+   WindowInsets).
+ * Ориентация фиксированная landscape; screenOrientation="portrait"
+   на этом дисплее всё равно даст 0-градусный поворот, но лучше
+   явно landscape.
+ * После перезагрузки бывает показ com.adayo.factory - проверяйте,
+   что ваш лаунчер поднимается первым (он и есть HOME, так что должен).
+ * Штатный лаунчер несёт климат/медиа-виджеты; при его отключении
+   эти панели пропадают - это ожидаемо.
+
+
+10. МИНИМАЛЬНЫЙ СКЕЛЕТ ПРОЕКТА
+----------------------------------------------------------------
+ build.gradle (app):
+   android {
+       compileSdk 34          // можно любой современный
+       defaultConfig {
+           applicationId "ru.example.carlauncher"
+           minSdk 26
+           targetSdk 28       // ведём себя как «родное» приложение Android 9
+           versionCode 1
+           versionName "1.0"
+       }
+       compileOptions { sourceCompatibility JavaVersion.VERSION_1_8
+                        targetCompatibility JavaVersion.VERSION_1_8 }
+   }
+   Никаких ndk/ABI-фильтров не нужно - чистый Java/Kotlin.
+
+ Манифест - см. раздел 3.1. Тема - без ActionBar:
+   <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+       <item name="android:windowBackground">@android:color/black</item>
+       <item name="android:windowFullscreen">false</item>
+   </style>
+
+ Перечисление установленных приложений и запуск:
+
+   PackageManager pm = getPackageManager();
+   Intent q = new Intent(Intent.ACTION_MAIN)
+           .addCategory(Intent.CATEGORY_LAUNCHER);
+   List<ResolveInfo> apps = pm.queryIntentActivities(q, 0);
+   for (ResolveInfo ri : apps) {
+       String pkg = ri.activityInfo.packageName;
+       String cls = ri.activityInfo.name;
+       CharSequence label = ri.loadLabel(pm);
+       Drawable icon = ri.loadIcon(pm);
+       if (pkg.equals(getPackageName())) continue;  // себя не показываем
+       // добавляем в свою сетку
+   }
+
+   // запуск по тапу
+   Intent i = new Intent(Intent.ACTION_MAIN)
+           .addCategory(Intent.CATEGORY_LAUNCHER)
+           .setComponent(new ComponentName(pkg, cls))
+           .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+   startActivity(i);
+
+ Запуск штатной функции (пример радио):
+   startActivity(new Intent().setComponent(new ComponentName(
+           "com.adayo.ora.radio",
+           "com.adayo.ui.main.Radio_MainActivity")));
+
+ Сохранение раскладки: SharedPreferences или Room; учтите, что при
+ обновлении приложения данные сохраняются, а при uninstall - нет.
+
+ Полезно для UI: GridLayout/RecyclerView, размер ячейки под 1800x640,
+ иконки 96-128 px, подпись 24-28 px (при density 1.0 это sp=px).
+ Для дока - нижние 112 px (y=608..720).
+
+
+11. ЧТО ЕЩЁ МОЖНО ДОСТАТЬ ИЗ УСТРОЙСТВА
+----------------------------------------------------------------
+ * Штатный лаунчер: /system/priv-app/Launcher/Launcher.apk (29 МБ,
+   внутри classes.dex - примеры работы с source-менеджером и ключами).
+ * Source-менеджер: /system/app/SourceMngService/SourceMngService.apk
+ * Служба клавиш: /system/app/keyeventservice/keyeventservice.apk
+ * Медиа: /system/app/Media/Media.apk
+ * Полный дамп props: adb shell getprop > props.txt
+ * Все окна и их геометрия: adb shell dumpsys window windows
+ * Все сервисы: adb shell service list
+ * Все broadcast-ы системы: adb shell dumpsys activity broadcasts
+ * В этом каталоге также есть: README.md (настройка ADB и откат),
+   install-apk.sh (установка APK в обход фильтра), car-check.sh
+   (диагностика), apk-backup/ (APK всех удалённых приложений).
+ * Обновление прошивки (не трогал, не монтируется как ISO):
+   IVI_UPDATE_HM6W16R-V07.00.00-231010.iso (712 МБ).
+
+----------------------------------------------------------------
+ Предупреждение: не прошивайте ГУ и не разблокируйте загрузчик без
+ резервной копии - откат на этом устройстве сложный. Команды с adb
+ (разделы 3, 4, 7, 8) проверены на текущей прошивке; сведения по
+ внутренним API Adayo (раздел 6) получены разбором APK и требуют
+ проверки в вашем коде.
+================================================================

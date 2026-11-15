@@ -1,0 +1,6 @@
+{
+  "name": "M6 Launcher",
+  "description": "Мультимедиа-лаунчер для Haval M6 с интеграцией Яндекс.Музыки и виджетами управления плеером",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

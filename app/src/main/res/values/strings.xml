@@ -1,0 +1,27 @@
+<resources>
+    <string name="app_name">M6 Launcher</string>
+    <string name="nav_home">Главная</string>
+    <string name="nav_music">Яндекс.Музыка</string>
+    <string name="nav_radio">Радио</string>
+    <string name="nav_phone">Телефон</string>
+    <string name="nav_apps">Приложения</string>
+    <string name="nav_settings">Настройки</string>
+    <string name="wifi_connected">Wi-Fi</string>
+    <string name="wifi_no_network">Нет сети</string>
+    <string name="wifi_disabled">Wi-Fi выкл</string>
+    <string name="player_title_idle">Яндекс.Музыка и медиа</string>
+    <string name="player_subtitle_idle">Нажмите Play или откройте плеер</string>
+    <string name="player_playing">Воспроизведение</string>
+    <string name="player_paused">Пауза</string>
+    <string name="action_my_wave">Моя волна</string>
+    <string name="action_collection">Коллекция</string>
+    <string name="action_search">Поиск</string>
+    <string name="action_open_ym">Открыть</string>
+    <string name="haval_section_title">Системы Haval M6</string>
+    <string name="pinned_section_title">Избранные приложения</string>
+    <string name="search_apps_hint">Поиск приложений…</string>
+    <string name="category_all">Все</string>
+    <string name="category_media">Мультимедиа</string>
+    <string name="category_car">Авто</string>
+    <string name="category_system">Система</string>
+</resources>
