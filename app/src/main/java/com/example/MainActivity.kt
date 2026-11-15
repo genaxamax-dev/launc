@@ -232,31 +232,17 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    CockpitTopBar(
-                        activeSourceLabel = mediaState.activeSourceLabel,
-                        wifiState = wifiState,
-                        showSeconds = settings.showSecondsInClock,
-                        onWifiClick = { viewModel.openWifiSettings() },
-                        onCycleDim = { viewModel.cycleWallpaperDimPreset() },
-                        onOpenSettings = {
-                            viewModel.navigateTo(
-                                if (destination == LauncherDestination.SETTINGS) {
-                                    LauncherDestination.HOME
-                                } else {
-                                    LauncherDestination.SETTINGS
-                                }
-                            )
-                        },
-                        onOpenApps = {
-                            viewModel.navigateTo(
-                                if (destination == LauncherDestination.APPS) {
-                                    LauncherDestination.HOME
-                                } else {
-                                    LauncherDestination.APPS
-                                }
-                            )
-                        }
-                    )
+                    if (destination == LauncherDestination.HOME) {
+                        CockpitTopBar(
+                            activeSourceLabel = mediaState.activeSourceLabel,
+                            wifiState = wifiState,
+                            showSeconds = settings.showSecondsInClock,
+                            onWifiClick = { viewModel.openWifiSettings() },
+                            onCycleDim = { viewModel.cycleWallpaperDimPreset() },
+                            onOpenSettings = { viewModel.navigateTo(LauncherDestination.SETTINGS) },
+                            onOpenApps = { viewModel.navigateTo(LauncherDestination.APPS) }
+                        )
+                    }
 
                     val screenContent: @Composable (LauncherDestination) -> Unit = { screen ->
                         when (screen) {
@@ -343,22 +329,16 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                         }
                     }
 
-                    CockpitBottomDock(
-                        currentDestination = destination,
-                        onHomeClick = { viewModel.navigateTo(LauncherDestination.HOME) },
-                        onYandexMusicClick = { viewModel.openYandexMusic() },
-                        onRadioClick = { viewModel.launchRadio() },
-                        onPhoneClick = { viewModel.launchPhone() },
-                        onAppsClick = {
-                            viewModel.navigateTo(
-                                if (destination == LauncherDestination.APPS) {
-                                    LauncherDestination.HOME
-                                } else {
-                                    LauncherDestination.APPS
-                                }
-                            )
-                        }
-                    )
+                    if (destination == LauncherDestination.HOME) {
+                        CockpitBottomDock(
+                            currentDestination = destination,
+                            onHomeClick = { viewModel.navigateTo(LauncherDestination.HOME) },
+                            onYandexMusicClick = { viewModel.openYandexMusic() },
+                            onRadioClick = { viewModel.launchRadio() },
+                            onPhoneClick = { viewModel.launchPhone() },
+                            onAppsClick = { viewModel.navigateTo(LauncherDestination.APPS) }
+                        )
+                    }
                 }
             }
         }

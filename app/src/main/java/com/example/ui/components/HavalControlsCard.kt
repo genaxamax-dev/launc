@@ -286,27 +286,27 @@ private fun PinnedAppTile(
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .width(104.dp)
+            .width(120.dp)
             .minimumInteractiveComponentSize()
             .testTag("pinned_app_${app.packageName}"),
         shape = RoundedCornerShape(16.dp),
-        color = CockpitSurfaceElevated.copy(alpha = 0.92f),
+        color = CockpitSurfaceElevated.copy(alpha = 0.94f),
         border = BorderStroke(1.dp, CockpitHairline)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             DrawableAppIcon(
                 drawable = app.icon,
                 contentDescription = app.label,
-                size = 44.dp,
-                cornerRadius = 12.dp
+                size = 54.dp,
+                cornerRadius = 14.dp
             )
             Text(
                 text = app.label,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

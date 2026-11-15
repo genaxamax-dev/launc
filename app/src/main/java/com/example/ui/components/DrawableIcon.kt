@@ -32,7 +32,7 @@ private object AppIconBitmapCache {
         val key = System.identityHashCode(drawable)
         cache.get(key)?.let { return it }
         return runCatching {
-            drawable.toBitmap(width = 72, height = 72).asImageBitmap()
+            drawable.toBitmap(width = 128, height = 128).asImageBitmap()
         }.getOrNull()?.also { bmp ->
             cache.put(key, bmp)
         }
