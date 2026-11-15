@@ -84,6 +84,27 @@ class AppRepository(private val context: Context) {
         )
     )
 
+    fun getClimateAction(): HavalCarAction = HavalCarAction(
+        id = "climate",
+        title = "Климат (AC)",
+        subtitle = "Кондиционер и печка",
+        kind = CarActionKind.CLIMATE,
+        primaryPackage = "com.adayo.ac",
+        primaryActivity = "com.adayo.ac.AcMainActivity"
+    )
+
+    fun getRadioAction(): HavalCarAction = HavalCarAction(
+        id = "radio",
+        title = "Радио FM/AM",
+        subtitle = "Штатный тюнер Adayo",
+        kind = CarActionKind.RADIO,
+        primaryPackage = "com.adayo.ora.radio",
+        primaryActivity = "com.adayo.ui.main.Radio_MainActivity",
+        fallbackComponents = listOf(
+            "com.android.car.radio" to "com.android.car.radio.CarRadioActivity"
+        )
+    )
+
     fun getUsbMediaAction(): HavalCarAction = HavalCarAction(
         id = "usb_media",
         title = "Медиа USB/BT",
@@ -228,6 +249,19 @@ class AppRepository(private val context: Context) {
 
     fun openWifiSettings(): Result<Unit> {
         val intent = Intent(Settings.ACTION_WIFI_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return if (intent.resolveActivity(pm) != null) {
+            runCatching { context.startActivity(intent) }
+        } else {
+            runCatching {
+                context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+    }
+
+    fun openNotificationListenerSettings(): Result<Unit> {
+        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return if (intent.resolveActivity(pm) != null) {

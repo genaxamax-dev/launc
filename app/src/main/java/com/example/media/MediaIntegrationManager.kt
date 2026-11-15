@@ -2,7 +2,6 @@ package com.example.media
 
 import android.app.SearchManager
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -10,15 +9,15 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.AudioManager
 import android.media.MediaMetadata
-import android.media.browse.MediaBrowser
 import android.media.session.MediaController
+import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.KeyEvent
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.model.MediaBrowseItem
 import com.example.model.MediaConnectionMode
@@ -26,6 +25,7 @@ import com.example.model.MediaPlayerState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,17 +39,28 @@ class MediaIntegrationManager(
 ) {
     companion object {
         const val YANDEX_MUSIC_PKG = "ru.yandex.music"
+
+        private val notificationUpdates = MutableSharedFlow<Pair<String?, String?>>(extraBufferCapacity = 8)
+
+        fun onYandexNotification(title: String?, artist: String?) {
+            if (!title.isNullOrBlank() || !artist.isNullOrBlank()) {
+                notificationUpdates.tryEmit(title to artist)
+            }
+        }
     }
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val sessionManager = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
     private val pm = context.packageManager
 
     private val _state = MutableStateFlow(MediaPlayerState())
     val state: StateFlow<MediaPlayerState> = _state.asStateFlow()
 
-    private var mediaBrowser: MediaBrowser? = null
     private var mediaController: MediaController? = null
+    private var sessionListener: MediaSessionManager.OnActiveSessionsChangedListener? = null
     private var pollJob: Job? = null
+    private var listenerWatchJob: Job? = null
+    private var notificationWatchJob: Job? = null
     private var receiverRegistered = false
     private var lastMutedVolume: Int = 10
 
@@ -109,7 +120,7 @@ class MediaIntegrationManager(
         }
 
         override fun onSessionDestroyed() {
-            detachMediaController()
+            detachMediaController(resetMode = true)
         }
     }
 
@@ -117,15 +128,21 @@ class MediaIntegrationManager(
         refreshYandexPackageStatus()
         refreshAudioStatus()
         registerMediaBroadcasts()
-        connectYandexMediaBrowser()
+        observeNotificationListener()
+        observeNotificationMetadata()
+        connectYandexSession()
         startAudioPolling()
     }
 
     fun stop() {
         pollJob?.cancel()
         pollJob = null
+        listenerWatchJob?.cancel()
+        listenerWatchJob = null
+        notificationWatchJob?.cancel()
+        notificationWatchJob = null
         unregisterMediaBroadcasts()
-        disconnectMediaBrowser()
+        disconnectSession()
     }
 
     fun refreshYandexPackageStatus() {
@@ -297,142 +314,170 @@ class MediaIntegrationManager(
     }
 
     fun reconnectMediaBrowser() {
-        disconnectMediaBrowser()
+        disconnectSession()
         refreshYandexPackageStatus()
-        connectYandexMediaBrowser()
+        connectYandexSession()
     }
 
-    private fun connectYandexMediaBrowser() {
-        val serviceIntent = Intent("android.media.browse.MediaBrowserService")
-        val services = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            pm.queryIntentServices(serviceIntent, PackageManager.ResolveInfoFlags.of(0))
-        } else {
-            @Suppress("DEPRECATION")
-            pm.queryIntentServices(serviceIntent, 0)
+    private fun observeNotificationListener() {
+        listenerWatchJob?.cancel()
+        listenerWatchJob = scope.launch {
+            YandexNotificationListener.connected.collect { isConnected ->
+                _state.update { it.copy(isNotificationListenerConnected = isConnected) }
+                if (isConnected) {
+                    connectYandexSession()
+                }
+            }
+        }
+    }
+
+    private fun observeNotificationMetadata() {
+        notificationWatchJob?.cancel()
+        notificationWatchJob = scope.launch {
+            notificationUpdates.collect { (title, artist) ->
+                _state.update { current ->
+                    current.copy(
+                        trackTitle = title?.takeIf { it.isNotBlank() } ?: current.trackTitle,
+                        artistName = artist?.takeIf { it.isNotBlank() } ?: current.artistName,
+                        activeSourceLabel = "ЯНДЕКС.МУЗЫКА"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun isListenerAccessGranted(): Boolean {
+        val enabledBySystem = runCatching {
+            NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+        }.getOrDefault(false)
+        return YandexNotificationListener.instance != null || enabledBySystem
+    }
+
+    private fun connectYandexSession() {
+        val listener = YandexNotificationListener.component(context)
+        val hasAccess = isListenerAccessGranted()
+
+        if (!hasAccess) {
+            _state.update {
+                it.copy(
+                    connectionMode = MediaConnectionMode.MEDIA_KEYS_FALLBACK,
+                    isNotificationListenerConnected = false,
+                    diagnosticStatus = "Нет доступа к уведомлениям • включите Notification access"
+                )
+            }
+            return
         }
 
-        val yandexService = services.firstOrNull { it.serviceInfo.packageName == YANDEX_MUSIC_PKG }
-            ?: services.firstOrNull()
+        _state.update { it.copy(isNotificationListenerConnected = true) }
 
-        if (yandexService == null) {
+        if (sessionListener == null) {
+            val cb = MediaSessionManager.OnActiveSessionsChangedListener { sessions ->
+                bindYandexSession(sessions)
+            }
+            val registered = runCatching {
+                sessionManager.addOnActiveSessionsChangedListener(cb, listener)
+            }.isSuccess
+            if (registered) {
+                sessionListener = cb
+            }
+        }
+
+        val activeSessions = runCatching {
+            sessionManager.getActiveSessions(listener)
+        }.getOrNull()
+
+        if (activeSessions != null) {
+            bindYandexSession(activeSessions)
+        } else {
+            _state.update {
+                it.copy(
+                    connectionMode = MediaConnectionMode.MEDIA_KEYS_FALLBACK,
+                    diagnosticStatus = "Доступ к уведомлениям ожидает активации системой"
+                )
+            }
+        }
+    }
+
+    private fun bindYandexSession(sessions: List<MediaController>?) {
+        val controller = sessions?.firstOrNull { it.packageName == YANDEX_MUSIC_PKG }
+            ?: sessions?.firstOrNull()
+
+        if (controller == null) {
+            detachMediaController(resetMode = true)
             _state.update {
                 it.copy(
                     connectionMode = MediaConnectionMode.MEDIA_KEYS_FALLBACK,
                     diagnosticStatus = if (it.isYandexMusicInstalled) {
-                        "MediaBrowserService скрыт • Используются медиа-клавиши"
+                        "MediaSession готова • Запустите трек в Яндекс.Музыке"
                     } else {
-                        "Яндекс.Музыка не установлена • Медиа-клавиши активны"
+                        "MediaSession готова • Ожидание активного плеера"
                     }
                 )
             }
             return
         }
 
-        val component = ComponentName(yandexService.serviceInfo.packageName, yandexService.serviceInfo.name)
-        var browserRef: MediaBrowser? = null
-        val callback = object : MediaBrowser.ConnectionCallback() {
-            override fun onConnected() {
-                val browser = browserRef ?: return
-                val token = browser.sessionToken
-                val controller = MediaController(context, token)
-                mediaController = controller
-                controller.registerCallback(controllerCallback)
-                updateFromMetadata(controller.metadata)
-                updateFromPlaybackState(controller.playbackState)
-                _state.update {
-                    it.copy(
-                        connectionMode = MediaConnectionMode.MEDIA_BROWSER_CONNECTED,
-                        activeSourceLabel = if (component.packageName == YANDEX_MUSIC_PKG) "ЯНДЕКС.МУЗЫКА" else component.packageName.uppercase(),
-                        diagnosticStatus = "MediaBrowser подключён (${component.packageName})"
-                    )
-                }
-                subscribeRootItems(browser)
-            }
-
-            override fun onConnectionSuspended() {
-                detachMediaController()
-            }
-
-            override fun onConnectionFailed() {
-                detachMediaController()
-                _state.update {
-                    it.copy(
-                        connectionMode = MediaConnectionMode.MEDIA_KEYS_FALLBACK,
-                        diagnosticStatus = "Прямой доступ к MediaBrowser закрыт системой • Активны медиа-клавиши"
-                    )
-                }
-            }
+        if (controller.sessionToken == mediaController?.sessionToken) {
+            updateFromMetadata(controller.metadata)
+            updateFromPlaybackState(controller.playbackState)
+            return
         }
-        browserRef = MediaBrowser(context, component, callback, Bundle.EMPTY)
-        mediaBrowser = browserRef
-        runCatching { browserRef.connect() }.onFailure {
+
+        detachMediaController(resetMode = false)
+        mediaController = controller
+        controller.registerCallback(controllerCallback)
+        updateFromMetadata(controller.metadata)
+        updateFromPlaybackState(controller.playbackState)
+
+        val isYandex = controller.packageName == YANDEX_MUSIC_PKG
+        _state.update {
+            it.copy(
+                connectionMode = MediaConnectionMode.MEDIA_BROWSER_CONNECTED,
+                activeSourceLabel = if (isYandex) "ЯНДЕКС.МУЗЫКА" else controller.packageName.substringAfterLast('.').uppercase(),
+                diagnosticStatus = "MediaSession подключена (${controller.packageName})"
+            )
+        }
+    }
+
+    private fun detachMediaController(resetMode: Boolean = true) {
+        mediaController?.let { runCatching { it.unregisterCallback(controllerCallback) } }
+        mediaController = null
+        if (resetMode) {
             _state.update {
                 it.copy(
                     connectionMode = MediaConnectionMode.MEDIA_KEYS_FALLBACK,
-                    diagnosticStatus = "Медиа-клавиши активны"
+                    canBrowseYandex = false,
+                    browseItems = emptyList()
                 )
             }
         }
     }
 
-    private fun subscribeRootItems(browser: MediaBrowser) {
-        val rootId = runCatching { browser.root }.getOrNull() ?: return
-        runCatching {
-            browser.subscribe(rootId, object : MediaBrowser.SubscriptionCallback() {
-                override fun onChildrenLoaded(
-                    parentId: String,
-                    children: MutableList<MediaBrowser.MediaItem>
-                ) {
-                    val mapped = children.take(12).map { item ->
-                        MediaBrowseItem(
-                            mediaId = item.mediaId ?: "",
-                            title = item.description.title?.toString() ?: "Трек / Подборка",
-                            subtitle = item.description.subtitle?.toString() ?: "",
-                            isPlayable = item.isPlayable,
-                            isBrowsable = item.isBrowsable
-                        )
-                    }.filter { it.mediaId.isNotEmpty() }
-
-                    _state.update {
-                        it.copy(
-                            browseItems = mapped,
-                            canBrowseYandex = mapped.isNotEmpty()
-                        )
-                    }
-                }
-            })
+    private fun disconnectSession() {
+        sessionListener?.let { listener ->
+            runCatching { sessionManager.removeOnActiveSessionsChangedListener(listener) }
         }
-    }
-
-    private fun detachMediaController() {
-        mediaController?.let { runCatching { it.unregisterCallback(controllerCallback) } }
-        mediaController = null
-        _state.update {
-            it.copy(
-                connectionMode = MediaConnectionMode.MEDIA_KEYS_FALLBACK,
-                canBrowseYandex = false,
-                browseItems = emptyList()
-            )
-        }
-    }
-
-    private fun disconnectMediaBrowser() {
-        detachMediaController()
-        mediaBrowser?.let {
-            if (it.isConnected) {
-                runCatching { it.disconnect() }
-            }
-        }
-        mediaBrowser = null
+        sessionListener = null
+        detachMediaController(resetMode = true)
     }
 
     private fun updateFromMetadata(metadata: MediaMetadata?) {
         if (metadata == null) return
         val title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
-        val artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST)
+
+        var artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
+
+        if (artist.isNullOrBlank()) {
+            val description = metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION)
+            if (!description.isNullOrBlank()) {
+                val parsed = description.split(", ").drop(1).joinToString(", ").trim()
+                artist = parsed.ifEmpty { description }
+            }
+        }
+
         val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM)
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
         val art: Bitmap? = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)

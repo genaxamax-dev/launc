@@ -1,0 +1,432 @@
+================================================================================
+СВОДКА ДЛЯ ДОРАБОТКИ ЛАУНЧЕРА HAVAL M6
+Тема: исполнитель в музыкальном виджете + кнопки «Моя волна» и «Коллекция»
+Дата: 15.11.2026
+================================================================================
+
+УСТРОЙСТВО
+  ГУ:        MEK-MX8Q / mek_8q_car, Android 9 (API 28), 1920x720, arm64-v8a,
+             userdebug, serial 151ba80e8294ca4d
+  Лаунчер:   com.aistudio.havalm6launcher.kqtxzn, activity com.example.MainActivity
+  Музыка:    ru.yandex.music, версия 2026.07.4 #157rur
+             versionCode 24026391, targetSdk 36, uid 10062
+
+--------------------------------------------------------------------------------
+КОРОТКО (главное)
+--------------------------------------------------------------------------------
+1. Исполнитель не показывается потому, что лаунчер ВООБЩЕ не подключён к
+   медиасессии Яндекса. Яндекс не пускает сторонние приложения в свой
+   MediaBrowserService, а уведомления лаунчер не слушает. Поэтому виджет
+   работает в режиме «КЛАВИШИ» и не знает ни трека, ни исполнителя.
+
+2. Кнопки ведут не туда потому, что в коде неверные deep links:
+       «Моя волна» -> yandexmusic://radio
+       «Коллекция» -> yandexmusic://collection
+   Оба дают экран «Нет такой страницы». Рабочие адреса:
+       «Коллекция» -> yandexmusic://mymusic/
+       «Моя волна» -> yandexmusic://radio/station/user:onyourwave
+                      (сильный кандидат, нужна финальная проверка на живом ГУ)
+
+3. Правильное решение: добавить в лаунчер NotificationListenerService и брать
+   метаданные через MediaSessionManager.getActiveSessions(). MediaBrowser к
+   Яндекс.Музыке оставить необязательным/удалить. Deep links заменить.
+
+--------------------------------------------------------------------------------
+1. ЧТО ФАКТИЧЕСКИ ЕСТЬ НА ГУ (снято до отключения)
+--------------------------------------------------------------------------------
+Медиасессия Яндекса (dumpsys media_session):
+  session id      : androidx.media3.session.id.
+  state           : PLAYING
+  queueTitle      : «Моя волна»
+  metadata        : title «Май», subtitle «Beliy, Xamm»
+  controllers     : 2   (лаунчера среди них НЕТ)
+
+Уведомление MediaStyle (dumpsys notification --noredact):
+  android.title   = «Май»              <- название трека
+  android.text    = «Beliy, Xamm»      <- исполнитель
+  android.template= android.app.Notification$MediaStyle
+
+Слушатели уведомлений:
+  settings get secure enabled_notification_listeners  ->  пусто
+
+Сервисы Яндекса:
+  ru.yandex.music.common.media.mediabrowser.MusicBrowserService
+      exported=true, action android.media.browse.MediaBrowserService
+  com.yandex.music.shared.media.session.session.Media3SessionService
+      exported=false  (напрямую биндить нельзя)
+
+Вывод: метаданные на устройстве ЕСТЬ и доступны. Проблема только в доступе.
+
+--------------------------------------------------------------------------------
+2. ПОЧЕМУ ЛАУНЧЕР НЕ ПОЛУЧАЕТ ИСПОЛНИТЕЛЯ (корневая причина)
+--------------------------------------------------------------------------------
+Лаунчер в MediaIntegrationManager.connectYandexMediaBrowser() подключается
+через android.media.browse.MediaBrowser к MusicBrowserService.
+
+В декомпилированном MusicBrowserService.onGetRoot() (метод b(int, String))
+есть белый список вызывающих. Пропускаются только:
+  - свой же процесс (uid приложения);
+  - system uid 1000;
+  - пакет из внутреннего allow-list Яндекса;
+  - приложение, подписанное платформенной подписью;
+  - приложение с разрешением android.permission.MEDIA_CONTENT_CONTROL;
+  - приложение с разрешением BIND_NOTIFICATION_LISTENER_SERVICE.
+
+Наш лаунчер — обычное стороннее приложение. Для Яндекса он «unknown caller»,
+onGetRoot возвращает null, MediaBrowser получает onConnectionFailed.
+Лаунчер уходит в MEDIA_KEYS_FALLBACK -> на экране «КЛАВИШИ» и
+«Управление по медиа-клавишам • Готово».
+
+Почему нельзя просто выдать разрешение:
+  MEDIA_CONTENT_CONTROL          prot=signature|privileged  (pm grant не даёт)
+  BIND_NOTIFICATION_LISTENER_SERVICE  prot=signature        (pm grant не даёт)
+
+Почему не спасают broadcast'ы:
+  код слушает ru.yandex.music.metachanged / playstatechanged,
+  но Яндекс их фактически не рассылает — данных нет.
+
+Почему не работает прямое подключение к Media3SessionService:
+  exported=false, стороннее приложение его не запустит и не привяжет.
+
+--------------------------------------------------------------------------------
+3. ПОЧЕМУ КНОПКИ ВЕДУТ НЕ ТУДА (проверенные deep links)
+--------------------------------------------------------------------------------
+Сейчас в LauncherViewModel.kt (строки ~230-243):
+  openYandexMyWave()     -> "yandexmusic://radio"
+  openYandexCollection() -> "yandexmusic://collection"
+  openYandexSearch()     -> "yandexmusic://search"
+
+Результаты проверки на ГУ (am start -a VIEW -d ... -p ru.yandex.music):
+
+  yandexmusic://radio                       -> StubActivity, результата нет
+  yandexmusic://collection                  -> «Нет такой страницы»
+  yandexmusic://mymusic                     -> «Нет такой страницы»
+  yandexmusic://mymusic/                    -> MainScreenActivity, коллекция  [РАБОТАЕТ]
+  yandexmusic://mixes                       -> «Нет такой страницы»
+  yandexmusic://mixes/                      -> MixesScreenActivity            [РАБОТАЕТ]
+  yandexmusic://home                        -> MainScreenActivity
+  yandexmusic://search/                     -> SearchActivity
+  yandexmusic://radio/onyourwave            -> StubActivity, «Нет такой страницы»
+  yandexmusic://radio/onyourwave/           -> «Нет такой страницы»
+  yandexmusic://radio/user:onyourwave       -> «Нет такой страницы»
+  yandexmusic://radio/user%3Aonyourwave     -> «Нет такой страницы»
+  yandexmusic://radio/user-onyourwave       -> «Нет такой страницы»
+  yandexmusic://radio/station/user:onyourwave
+                                            -> SkeletonScreenActivity (экран станции)
+                                               [СИЛЬНЫЙ КАНДИДАТ, проверить вживую]
+  yandexmusic://play-vibe/                  -> MainScreenActivity, 404
+  yandexmusic://play-vibe/onyourwave        -> «Нет такой страницы»
+  yandexmusic://multivibe/onyourwave        -> MainScreenActivity,
+                                               «приглашение больше недействительно»
+                                               (это «Моя волна на двоих», не то)
+
+ВАЖНО: завершающий слэш имеет значение.
+  mymusic  -> 404,  mymusic/  -> работает
+  mixes    -> 404,  mixes/    -> работает
+Поэтому в коде везде ставить слэш.
+
+Поддерживаемые схемы из dex Яндекса (для справки):
+  radio/([^/?]*)(/([^/?]*))?/?
+  mymusic/, mixes, playlist/, track/, album/, artist/, chart, search/,
+  landing/, collection/(multivibes), play-vibe, home, multivibe/...
+
+--------------------------------------------------------------------------------
+4. ЧТО МЕНЯТЬ В ЛАУНЧЕРЕ
+--------------------------------------------------------------------------------
+4.1. AndroidManifest.xml — добавить сервис-слушатель уведомлений
+     (внутрь <application>, рядом с activity):
+
+  <service
+      android:name=".media.YandexNotificationListener"
+      android:exported="true"
+      android:label="@string/app_name"
+      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+      <intent-filter>
+          <action android:name="android.service.notification.NotificationListenerService" />
+      </intent-filter>
+  </service>
+
+4.2. Новый файл
+     app/src/main/java/com/example/media/YandexNotificationListener.kt:
+
+  package com.example.media
+
+  import android.content.ComponentName
+  import android.content.Context
+  import android.service.notification.NotificationListenerService
+  import kotlinx.coroutines.flow.MutableStateFlow
+  import kotlinx.coroutines.flow.StateFlow
+  import kotlinx.coroutines.flow.asStateFlow
+
+  class YandexNotificationListener : NotificationListenerService() {
+
+      companion object {
+          private val _connected = MutableStateFlow(false)
+          val connected: StateFlow<Boolean> = _connected.asStateFlow()
+
+          @Volatile
+          var instance: YandexNotificationListener? = null
+              private set
+
+          fun component(context: Context): ComponentName =
+              ComponentName(context, YandexNotificationListener::class.java)
+      }
+
+      override fun onListenerConnected() {
+          instance = this
+          _connected.value = true
+      }
+
+      override fun onListenerDisconnected() {
+          instance = null
+          _connected.value = false
+      }
+
+      override fun onDestroy() {
+          instance = null
+          _connected.value = false
+          super.onDestroy()
+      }
+  }
+
+4.3. MediaIntegrationManager.kt — заменить подключение MediaBrowser
+     на MediaSessionManager (оставить старый метод как резерв).
+
+  import android.content.ComponentName
+  import android.media.session.MediaSessionManager
+
+  private var sessionListener: MediaSessionManager.OnActiveSessionsChangedListener? = null
+
+  private fun connectYandexSession() {
+      val listener = YandexNotificationListener.component(context)
+      if (YandexNotificationListener.instance == null) {
+          _state.update {
+              it.copy(
+                  connectionMode = MediaConnectionMode.MEDIA_KEYS_FALLBACK,
+                  diagnosticStatus = "Нет доступа к уведомлениям • включите Notification access"
+              )
+          }
+          return
+      }
+      val msm = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+      val cb = MediaSessionManager.OnActiveSessionsChangedListener { sessions ->
+          bindYandexSession(sessions)
+      }
+      sessionListener = cb
+      msm.addOnActiveSessionsChangedListener(cb, listener)
+      bindYandexSession(msm.getActiveSessions(listener))
+  }
+
+  private fun bindYandexSession(sessions: List<MediaController>?) {
+      val controller = sessions?.firstOrNull { it.packageName == YANDEX_MUSIC_PKG } ?: return
+      if (controller.sessionToken == mediaController?.sessionToken) return
+      detachMediaController()
+      mediaController = controller
+      controller.registerCallback(controllerCallback)
+      updateFromMetadata(controller.metadata)
+      updateFromPlaybackState(controller.playbackState)
+      _state.update {
+          it.copy(
+              connectionMode = MediaConnectionMode.MEDIA_BROWSER_CONNECTED,
+              activeSourceLabel = "ЯНДЕКС.МУЗЫКА",
+              diagnosticStatus = "MediaSession подключена (ru.yandex.music)"
+          )
+      }
+  }
+
+  В start() вызвать connectYandexSession() вместо connectYandexMediaBrowser().
+  В stop()/disconnectMediaBrowser() снять слушатель:
+
+      sessionListener?.let {
+          runCatching {
+              (context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager)
+                  .removeOnActiveSessionsChangedListener(it)
+          }
+      }
+      sessionListener = null
+
+  Примечание: detachMediaController() сейчас сбрасывает mode в FALLBACK.
+  Чтобы не было мигания при смене трека, сделать у него параметр
+  resetMode: Boolean = true и при переподключении вызывать
+  detachMediaController(resetMode = false).
+
+4.4. Метаданные (updateFromMetadata) — уже почти всё есть:
+  TITLE -> METADATA_KEY_TITLE / DISPLAY_TITLE
+  ARTIST -> METADATA_KEY_ARTIST / ALBUM_ARTIST / DISPLAY_SUBTITLE
+  У Яндекса subtitle = «Beliy, Xamm», так что после подключения сессии
+  исполнитель появится сам. Дополнительно можно разбирать
+  METADATA_KEY_DISPLAY_DESCRIPTION, если ARTIST пустой:
+      description.split(", ").drop(1).joinToString(", ")
+
+4.5. Резерв: разбор уведомления (если сессия недоступна).
+  В YandexNotificationListener:
+
+  override fun onNotificationPosted(sbn: StatusBarNotification) {
+      if (sbn.packageName != "ru.yandex.music") return
+      val e = sbn.notification.extras
+      val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+      val text  = e.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+      MediaIntegrationManager.onYandexNotification(title, text)
+  }
+
+  В MediaIntegrationManager добавить companion-объект с MutableSharedFlow
+  (title, artist) и подписку в start(). Это даст исполнителя даже без
+  MediaSession, но без позиции/кнопок.
+
+4.6. Deep links — LauncherViewModel.kt, строки ~230-243:
+
+  fun openYandexMyWave() {
+      mediaManager.openYandexDeepLink(
+          "yandexmusic://radio/station/user:onyourwave",
+          "Моя волна"
+      ).onFailure { err ->
+          _statusMessage.value = err.message ?: "Яндекс.Музыка не найдена"
+      }
+  }
+
+  fun openYandexCollection() {
+      mediaManager.openYandexDeepLink("yandexmusic://mymusic/")
+          .onFailure { err ->
+              _statusMessage.value = err.message ?: "Яндекс.Музыка не найдена"
+          }
+  }
+
+  fun openYandexSearch() {
+      mediaManager.openYandexDeepLink("yandexmusic://search/", "")
+  }
+
+  Удалить/не использовать: yandexmusic://radio, yandexmusic://collection,
+  yandexmusic://mymusic (без слэша), yandexmusic://mixes (без слэша).
+
+4.7. Диагностика в UI (по желанию).
+  В PlayerWidget уже показывается connectionMode. Полезно вывести
+  diagnosticStatus мелким текстом — тогда сразу видно, подключена сессия
+  или нет. Сейчас видно только «КЛАВИШИ» и текст-заглушку.
+
+--------------------------------------------------------------------------------
+5. КАК ВЫДАТЬ ДОСТУП К УВЕДОМЛЕНИЯМ (один раз, после установки)
+--------------------------------------------------------------------------------
+Основной способ (Android 9, cmd notification):
+
+  adb root
+  adb shell cmd notification allow_listener \
+      com.aistudio.havalm6launcher.kqtxzn/com.example.media.YandexNotificationListener
+  adb shell settings get secure enabled_notification_listeners
+
+Ожидаемый вывод: строка с нашим компонентом.
+
+Если в прошивке нет команды allow_listener — записать напрямую:
+
+  adb shell settings put secure enabled_notification_listeners \
+      com.aistudio.havalm6launcher.kqtxzn/com.example.media.YandexNotificationListener
+
+После переустановки лаунчера доступ обычно сбрасывается — выдать заново.
+Добавить этот шаг в install-launcher.sh (после adb install).
+
+--------------------------------------------------------------------------------
+6. ПРОВЕРКА ПОСЛЕ ПЕРЕПОДКЛЮЧЕНИЯ ГУ
+--------------------------------------------------------------------------------
+1) Доступ к уведомлениям выдан:
+     adb shell settings get secure enabled_notification_listeners
+
+2) Лаунчер видит сессию: в dumpsys media_session у сессии Яндекса
+   controllers должно стать 3 (было 2):
+     adb shell dumpsys media_session | grep -A20 ru.yandex.music
+
+3) Виджет показывает трек и исполнителя, например «Май» / «Beliy, Xamm»,
+   режим «ЯНДЕКС.МУЗЫКА», а не «КЛАВИШИ».
+
+4) «Коллекция»:
+     adb shell am start -W -a android.intent.action.VIEW \
+       -d 'yandexmusic://mymusic/' -p ru.yandex.music
+   Ожидается MainScreenActivity, экран коллекции/«Моей музыки».
+
+5) «Моя волна»:
+     adb shell am start -W -a android.intent.action.VIEW \
+       -d 'yandexmusic://radio/station/user:onyourwave' -p ru.yandex.music
+   Ожидается экран станции (SkeletonScreenActivity -> плеер «Моя волна»).
+   Если откроется 404/пусто — попробовать:
+     yandexmusic://radio/station/user%3Aonyourwave
+     yandexmusic://radio/station/user:onyourwave?play=true
+   и посмотреть фактический экран через:
+     adb shell dumpsys window windows | grep mCurrentFocus
+     adb shell uiautomator dump /data/local/tmp/ui.xml
+     adb shell cat /data/local/tmp/ui.xml | grep -o 'text="[^"]*"'
+
+6) Кнопки play/pause/next/prev: после подключения сессии они идут через
+   MediaController.transportControls, а не через медиа-клавиши.
+
+--------------------------------------------------------------------------------
+7. СБОРКА И УСТАНОВКА
+--------------------------------------------------------------------------------
+Что есть:
+  ~/Android/build-tools/36.0.0  (aapt2, d8, apksigner, zipalign)
+  ~/Android/platforms/android-36 и android-36.1
+  проект: ~/havalm6/launc (AGP 9.1.1, Kotlin 2.2.10, Gradle 9.3.1)
+
+Чего нет:
+  - исполняемого gradle в PATH;
+  - gradlew и gradle-wrapper.jar в проекте (есть только
+    gradle/wrapper/gradle-wrapper.properties с distributionUrl 9.3.1);
+  - ~/.gradle/wrapper/dists пуст;
+  - local.properties отсутствует.
+
+Чтобы собрать:
+  1) поставить Gradle 9.3.1 (или восстановить wrapper: `gradle wrapper`);
+  2) создать launc/local.properties:
+         sdk.dir=/home/genaxa83/Android
+  3) cd ~/havalm6/launc && gradle assembleDebug
+  4) установить:
+         cd ~/havalm6 && ./install-apk.sh launc/app/build/outputs/apk/debug/app-debug.apk
+     (install-apk.sh снимает фильтр Adayo через `service call package 195 i32 1`)
+     либо ./install-launcher.sh с готовым APK.
+
+После установки — снова выдать доступ к уведомлениям (раздел 5).
+
+--------------------------------------------------------------------------------
+8. ОГРАНИЧЕНИЯ И ГРАБЛИ ЭТОГО ГУ
+--------------------------------------------------------------------------------
+- logcat почти пуст (после очистки ~11 строк, в основном audit/avc).
+  Отлаживать по логам нельзя — только по UI/дампам/файлам.
+- uiautomator dump часто падает с
+  «ERROR: null root node returned by UiTestAutomationBridge».
+  Нужны 3-5 повторов, удаление старого файла и пауза 2-3 с.
+- `service list` иногда подвисает — оборачивать в timeout.
+- `cmd shortcut get-shortcuts` на Android 9 отсутствует.
+- Виджеты Яндекса в dumpsys appwidget есть (WidgetSquare/WidgetRectangle/
+  WidgetRecently), но готовых intent'ов «Моя волна»/«Коллекция» там нет.
+- Штатный `com.adayo.launcher` и Fossify отключены; HOME — наш лаунчер.
+- Перезагрузку ГУ без необходимости не делать; откат лаунчера:
+      adb shell pm enable com.adayo.launcher
+      adb shell cmd package set-home-activity \
+          com.adayo.launcher/.ui.Launcher_MainActivity
+      adb shell pm uninstall com.aistudio.havalm6launcher.kqtxzn
+      adb shell input keyevent KEYCODE_HOME
+
+--------------------------------------------------------------------------------
+9. АЛЬТЕРНАТИВА, ЕСЛИ СЛУШАТЕЛЬ УВЕДОМЛЕНИЙ НЕ ПОДХОДИТ
+--------------------------------------------------------------------------------
+Сделать лаунчер привилегированным системным приложением и выдать
+MEDIA_CONTENT_CONTROL через privapp-permissions whitelist:
+  - положить APK в /system/priv-app/...;
+  - добавить строку с разрешением в
+    /system/etc/permissions/privapp-permissions-*.xml;
+  - remount /system (на userdebug возможно), перезагрузка.
+Это грубее и рискованнее, чем NotificationListenerService, и требует
+перепрошивки раздела system. Рекомендуется только если слушатель
+уведомлений почему-то не заработает.
+
+--------------------------------------------------------------------------------
+10. ИТОГОВЫЙ ЧЕК-ЛИСТ ИЗМЕНЕНИЙ
+--------------------------------------------------------------------------------
+[ ] AndroidManifest.xml: <service> YandexNotificationListener
+[ ] Новый YandexNotificationListener.kt
+[ ] MediaIntegrationManager: MediaSessionManager + getActiveSessions()
+[ ] MediaIntegrationManager: снятие слушателя в stop()
+[ ] LauncherViewModel: My Wave -> yandexmusic://radio/station/user:onyourwave
+[ ] LauncherViewModel: Collection -> yandexmusic://mymusic/
+[ ] LauncherViewModel: Search -> yandexmusic://search/
+[ ] install-launcher.sh: выдача cmd notification allow_listener
+[ ] Проверка: controllers=3, виджет показывает исполнителя
+[ ] Проверка: обе кнопки открывают правильные экраны
+================================================================================

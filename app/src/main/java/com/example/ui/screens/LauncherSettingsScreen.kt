@@ -75,6 +75,7 @@ fun LauncherSettingsScreen(
     onToggleLightweightBackground: (Boolean) -> Unit,
     onToggleReduceAnimations: (Boolean) -> Unit,
     onOpenWifiSettings: () -> Unit,
+    onOpenNotificationAccess: () -> Unit,
     onReconnectMediaBrowser: () -> Unit,
     onOpenHomeSettings: () -> Unit,
     onBack: () -> Unit,
@@ -241,6 +242,15 @@ fun LauncherSettingsScreen(
                         accent = if (mediaState.isYandexMusicInstalled) ActiveEmerald else HavalAmber
                     )
                     DiagnosticRow(
+                        label = "Доступ к уведомлениям",
+                        value = if (mediaState.isNotificationListenerConnected) {
+                            "Включён (MediaSession)"
+                        } else {
+                            "Не выдан (нажмите кнопку ниже)"
+                        },
+                        accent = if (mediaState.isNotificationListenerConnected) ActiveEmerald else HavalAmber
+                    )
+                    DiagnosticRow(
                         label = "Режим управления",
                         value = mediaState.diagnosticStatus,
                         accent = TelemetryCyan
@@ -252,6 +262,21 @@ fun LauncherSettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        OutlinedButton(
+                            onClick = onOpenNotificationAccess,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp)
+                                .testTag("settings_notification_access_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (mediaState.isNotificationListenerConnected) ActiveEmerald else HavalAmber
+                            )
+                        ) {
+                            Text("Доступ к уведомлениям", color = TextPrimary)
+                        }
+
                         OutlinedButton(
                             onClick = onOpenWifiSettings,
                             modifier = Modifier
@@ -289,7 +314,7 @@ fun LauncherSettingsScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("Переподключить плеер")
+                            Text("Обновить сессию")
                         }
 
                         OutlinedButton(
@@ -372,13 +397,16 @@ fun LauncherSettingsScreen(
                     text = """
                         1. Установка APK (обход фильтра прошивки):
                         adb shell service call package 195 i32 1
-                        adb install -r -g app-release.apk
+                        adb install -r -g app-debug.apk
 
-                        2. Отключение штатного лаунчера и выбор домашним:
+                        2. Выдать доступ к уведомлениям (для Яндекс.Музыки):
+                        adb shell cmd notification allow_listener com.aistudio.havalm6launcher.kqtxzn/com.example.media.YandexNotificationListener
+
+                        3. Отключение штатного лаунчера и выбор домашним:
                         adb shell pm disable-user --user 0 com.adayo.launcher
                         adb shell cmd package set-home-activity com.aistudio.havalm6launcher.kqtxzn/com.example.MainActivity
 
-                        3. Откат на штатный экран Adayo:
+                        4. Откат на штатный экран Adayo:
                         adb shell pm enable com.adayo.launcher
                         adb shell cmd package set-home-activity com.adayo.launcher/.ui.Launcher_MainActivity
                     """.trimIndent(),

@@ -26,10 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -73,7 +71,6 @@ fun AppDrawerScreen(
     onSearchChange: (String) -> Unit,
     onSelectCategory: (AppCategory) -> Unit,
     onAppClick: (InstalledApp) -> Unit,
-    onTogglePin: (InstalledApp) -> Unit,
     onOpenAppInfo: (InstalledApp) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -186,7 +183,6 @@ fun AppDrawerScreen(
                                 app = app,
                                 isWide = isWide,
                                 onClick = { onAppClick(app) },
-                                onTogglePin = { onTogglePin(app) },
                                 onOpenInfo = { onOpenAppInfo(app) }
                             )
                         }
@@ -338,7 +334,6 @@ private fun AppDrawerItemCard(
     app: InstalledApp,
     isWide: Boolean,
     onClick: () -> Unit,
-    onTogglePin: () -> Unit,
     onOpenInfo: () -> Unit
 ) {
     Surface(
@@ -348,56 +343,30 @@ private fun AppDrawerItemCard(
             .testTag("drawer_app_${app.packageName}"),
         shape = RoundedCornerShape(18.dp),
         color = CockpitSurfaceElevated.copy(alpha = 0.96f),
-        border = BorderStroke(
-            width = if (app.isPinned) 1.5.dp else 1.dp,
-            color = if (app.isPinned) HavalAmber else CockpitHairline
-        )
+        border = BorderStroke(1.dp, CockpitHairline)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp)
         ) {
-            // Secondary Pin + Info buttons in top-right corner
-            Row(
-                modifier = Modifier.align(Alignment.TopEnd),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            IconButton(
+                onClick = onOpenInfo,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(48.dp)
+                    .minimumInteractiveComponentSize()
+                    .testTag("info_app_${app.packageName}"),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = CockpitSurfaceBright.copy(alpha = 0.55f),
+                    contentColor = TextSecondary
+                )
             ) {
-                IconButton(
-                    onClick = onTogglePin,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .minimumInteractiveComponentSize()
-                        .testTag("pin_app_${app.packageName}"),
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = if (app.isPinned) HavalAmber.copy(alpha = 0.22f) else CockpitSurfaceBright.copy(alpha = 0.55f),
-                        contentColor = if (app.isPinned) HavalAmber else TextSecondary
-                    )
-                ) {
-                    Icon(
-                        imageVector = if (app.isPinned) Icons.Rounded.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = if (app.isPinned) "Открепить" else "Закрепить на главном экране",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = onOpenInfo,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .minimumInteractiveComponentSize()
-                        .testTag("info_app_${app.packageName}"),
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = CockpitSurfaceBright.copy(alpha = 0.55f),
-                        contentColor = TextSecondary
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Info,
-                        contentDescription = "О приложении",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Rounded.Info,
+                    contentDescription = "О приложении",
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
             // Large Icon + Clear Title
@@ -438,9 +407,9 @@ private fun AppDrawerItemCard(
                         .padding(horizontal = 10.dp, vertical = 3.dp)
                 ) {
                     Text(
-                        text = if (app.isPinned) "На главном • ${app.category.title}" else app.category.title,
+                        text = app.category.title,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (app.isPinned) HavalAmber else TelemetryCyan,
+                        color = TelemetryCyan,
                         maxLines = 1
                     )
                 }

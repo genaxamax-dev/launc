@@ -105,6 +105,7 @@ fun YandexPlayerWidget(
     onOpenCollection: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenUsbMedia: () -> Unit,
+    onOpenNotificationAccess: () -> Unit,
     onPlayBrowseItem: (MediaBrowseItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -151,21 +152,30 @@ fun YandexPlayerWidget(
                         color = YandexGold
                     )
                     Surface(
+                        onClick = {
+                            if (!mediaState.isNotificationListenerConnected) {
+                                onOpenNotificationAccess()
+                            }
+                        },
                         shape = RoundedCornerShape(8.dp),
                         color = CockpitSurfaceBright.copy(alpha = 0.8f),
-                        border = BorderStroke(1.dp, CockpitHairline)
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (!mediaState.isNotificationListenerConnected) HavalAmber.copy(alpha = 0.6f) else CockpitHairline
+                        ),
+                        modifier = Modifier.testTag("media_connection_badge")
                     ) {
                         Text(
-                            text = if (mediaState.connectionMode == MediaConnectionMode.MEDIA_BROWSER_CONNECTED) {
-                                "MEDIA SYNC"
-                            } else {
-                                "КЛАВИШИ"
+                            text = when {
+                                mediaState.connectionMode == MediaConnectionMode.MEDIA_BROWSER_CONNECTED -> "MEDIA SESSION"
+                                !mediaState.isNotificationListenerConnected -> "НУЖЕН ДОСТУП"
+                                else -> "КЛАВИШИ"
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (mediaState.connectionMode == MediaConnectionMode.MEDIA_BROWSER_CONNECTED) {
-                                ActiveEmerald
-                            } else {
-                                TelemetryCyan
+                            color = when {
+                                mediaState.connectionMode == MediaConnectionMode.MEDIA_BROWSER_CONNECTED -> ActiveEmerald
+                                !mediaState.isNotificationListenerConnected -> HavalAmber
+                                else -> TelemetryCyan
                             },
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
@@ -245,6 +255,13 @@ fun YandexPlayerWidget(
                             color = if (mediaState.isPlaying) ActiveEmerald else TextMuted
                         )
                     }
+                    Text(
+                        text = mediaState.diagnosticStatus,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (mediaState.isNotificationListenerConnected) TextMuted else HavalAmber,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 

@@ -22,8 +22,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -60,41 +58,8 @@ class LauncherViewModel(
     val mediaState: StateFlow<MediaPlayerState> = mediaManager.state
     val wifiState: StateFlow<WifiState> = wifiMonitor.wifiState
 
-    val havalActions: List<HavalCarAction> = appRepository.getHavalCarActions()
-
-    private val installedApps: StateFlow<List<InstalledApp>> = combine(
-        _rawApps,
-        settings.map { it.pinnedPackages }.distinctUntilChanged()
-    ) { apps, pinnedList ->
-        val pinnedSet = pinnedList.toSet()
-        apps.map { app ->
-            val shouldPin = pinnedSet.contains(app.packageName)
-            if (app.isPinned == shouldPin) app else app.copy(isPinned = shouldPin)
-        }.sortedWith(
-            compareByDescending<InstalledApp> { it.packageName == "ru.yandex.music" }
-                .thenByDescending { it.isPinned }
-                .thenBy { it.label.lowercase() }
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
-    val pinnedApps: StateFlow<List<InstalledApp>> = combine(
-        installedApps,
-        settings.map { it.pinnedPackages }.distinctUntilChanged()
-    ) { apps, pinnedList ->
-        val byPkg = apps.associateBy { it.packageName }
-        pinnedList.mapNotNull { pkg -> byPkg[pkg] }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
     val filteredApps: StateFlow<List<InstalledApp>> = combine(
-        installedApps,
+        _rawApps,
         _searchQuery,
         _selectedCategory
     ) { apps, query, category ->
@@ -114,11 +79,11 @@ class LauncherViewModel(
 
     init {
         viewModelScope.launch {
-            _rawApps.value = appRepository.loadInstalledApps(settings.value.pinnedPackages.toSet())
+            _rawApps.value = appRepository.loadInstalledApps(emptySet())
         }
         viewModelScope.launch {
             appRepository.observePackageChanges().collect {
-                _rawApps.value = appRepository.loadInstalledApps(settings.value.pinnedPackages.toSet())
+                _rawApps.value = appRepository.loadInstalledApps(emptySet())
                 mediaManager.refreshYandexPackageStatus()
             }
         }
@@ -150,18 +115,6 @@ class LauncherViewModel(
         _statusMessage.value = null
     }
 
-    fun togglePinApp(app: InstalledApp) {
-        viewModelScope.launch {
-            preferencesRepository.togglePinnedPackage(app.packageName)
-            val msg = if (app.isPinned) {
-                "Убрано с главного экрана: ${app.label}"
-            } else {
-                "Закреплено на главном экране: ${app.label}"
-            }
-            _statusMessage.value = msg
-        }
-    }
-
     fun launchApp(app: InstalledApp) {
         appRepository.launchApp(app.packageName, app.activityName)
             .onFailure { err ->
@@ -169,11 +122,15 @@ class LauncherViewModel(
             }
     }
 
-    fun launchCarAction(action: HavalCarAction) {
+    private fun launchCarAction(action: HavalCarAction) {
         appRepository.launchCarAction(action)
             .onFailure { err ->
                 _statusMessage.value = err.message ?: "Не удалось открыть ${action.title}"
             }
+    }
+
+    fun launchClimate() {
+        launchCarAction(appRepository.getClimateAction())
     }
 
     fun launchUsbMedia() {
@@ -181,10 +138,7 @@ class LauncherViewModel(
     }
 
     fun launchRadio() {
-        val radioAction = havalActions.firstOrNull { it.id == "radio" }
-        if (radioAction != null) {
-            launchCarAction(radioAction)
-        }
+        launchCarAction(appRepository.getRadioAction())
     }
 
     fun launchPhone() {
@@ -195,6 +149,13 @@ class LauncherViewModel(
         appRepository.openWifiSettings()
             .onFailure {
                 _statusMessage.value = "Откройте настройки Wi-Fi вручную"
+            }
+    }
+
+    fun openNotificationListenerSettings() {
+        appRepository.openNotificationListenerSettings()
+            .onFailure {
+                _statusMessage.value = "Откройте «Доступ к уведомлениям» в настройках"
             }
     }
 
@@ -228,21 +189,21 @@ class LauncherViewModel(
     }
 
     fun openYandexMyWave() {
-        mediaManager.openYandexDeepLink("yandexmusic://radio", "Моя волна")
+        mediaManager.openYandexDeepLink("yandexmusic://radio/station/user:onyourwave", "Моя волна")
             .onFailure { err ->
                 _statusMessage.value = err.message ?: "Яндекс.Музыка не найдена"
             }
     }
 
     fun openYandexCollection() {
-        mediaManager.openYandexDeepLink("yandexmusic://collection")
+        mediaManager.openYandexDeepLink("yandexmusic://mymusic/")
             .onFailure { err ->
                 _statusMessage.value = err.message ?: "Яндекс.Музыка не найдена"
             }
     }
 
     fun openYandexSearch() {
-        mediaManager.openYandexDeepLink("yandexmusic://search", "")
+        mediaManager.openYandexDeepLink("yandexmusic://search/", "")
             .onFailure { err ->
                 _statusMessage.value = err.message ?: "Яндекс.Музыка не найдена"
             }

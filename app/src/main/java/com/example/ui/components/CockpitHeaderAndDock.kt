@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.Home
@@ -295,6 +296,7 @@ fun CockpitBottomDock(
     currentDestination: LauncherDestination,
     onHomeClick: () -> Unit,
     onYandexMusicClick: () -> Unit,
+    onClimateClick: () -> Unit,
     onRadioClick: () -> Unit,
     onPhoneClick: () -> Unit,
     onAppsClick: () -> Unit,
@@ -303,17 +305,17 @@ fun CockpitBottomDock(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(74.dp)
+            .height(60.dp)
             .testTag("cockpit_bottom_dock"),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(18.dp),
         color = CockpitSurface.copy(alpha = 0.92f),
         border = BorderStroke(1.dp, CockpitHairline)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             DockActionButton(
@@ -332,6 +334,15 @@ fun CockpitBottomDock(
                 accentColor = YandexGold,
                 testTag = "dock_yandex_music_button",
                 onClick = onYandexMusicClick,
+                modifier = Modifier.weight(1f)
+            )
+            DockActionButton(
+                label = "Климат",
+                icon = Icons.Rounded.AcUnit,
+                isActive = false,
+                accentColor = TelemetryCyan,
+                testTag = "dock_climate_button",
+                onClick = onClimateClick,
                 modifier = Modifier.weight(1f)
             )
             DockActionButton(
@@ -378,15 +389,15 @@ private fun DockActionButton(
     Surface(
         onClick = onClick,
         modifier = modifier
-            .height(56.dp)
+            .height(48.dp)
             .minimumInteractiveComponentSize()
             .testTag(testTag),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         color = if (isActive) accentColor else CockpitSurfaceElevated.copy(alpha = 0.88f),
         border = if (isActive) null else BorderStroke(1.dp, CockpitHairline.copy(alpha = 0.7f))
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp),
+            modifier = Modifier.padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -394,9 +405,9 @@ private fun DockActionButton(
                 imageVector = icon,
                 contentDescription = label,
                 tint = if (isActive) CockpitObsidian else accentColor,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(20.dp)
             )
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,

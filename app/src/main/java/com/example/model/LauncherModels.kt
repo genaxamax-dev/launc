@@ -82,6 +82,7 @@ data class MediaPlayerState(
     val isMuted: Boolean = false,
     val browseItems: List<MediaBrowseItem> = emptyList(),
     val canBrowseYandex: Boolean = false,
+    val isNotificationListenerConnected: Boolean = false,
     val diagnosticStatus: String = "Режим универсальных медиа-клавиш"
 )
 

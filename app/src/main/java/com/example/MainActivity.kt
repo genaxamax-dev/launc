@@ -100,7 +100,6 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
     val mediaState by viewModel.mediaState.collectAsStateWithLifecycle()
     val wifiState by viewModel.wifiState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val pinnedApps by viewModel.pinnedApps.collectAsStateWithLifecycle()
     val filteredApps by viewModel.filteredApps.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
@@ -250,8 +249,6 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                                 HomeDashboardScreen(
                                     mediaState = mediaState,
                                     reduceAnimations = settings.reduceAnimations,
-                                    havalActions = viewModel.havalActions,
-                                    pinnedApps = pinnedApps,
                                     onTogglePlayPause = { viewModel.togglePlayPause() },
                                     onPrevious = { viewModel.skipPrevious() },
                                     onNext = { viewModel.skipNext() },
@@ -264,10 +261,8 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                                     onOpenCollection = { viewModel.openYandexCollection() },
                                     onOpenSearch = { viewModel.openYandexSearch() },
                                     onOpenUsbMedia = { viewModel.launchUsbMedia() },
-                                    onPlayBrowseItem = { viewModel.playBrowseItem(it) },
-                                    onCarActionClick = { viewModel.launchCarAction(it) },
-                                    onPinnedAppClick = { viewModel.launchApp(it) },
-                                    onOpenAppsDrawer = { viewModel.navigateTo(LauncherDestination.APPS) }
+                                    onOpenNotificationAccess = { viewModel.openNotificationListenerSettings() },
+                                    onPlayBrowseItem = { viewModel.playBrowseItem(it) }
                                 )
                             }
 
@@ -279,7 +274,6 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                                     onSearchChange = { viewModel.updateSearchQuery(it) },
                                     onSelectCategory = { viewModel.selectCategory(it) },
                                     onAppClick = { viewModel.launchApp(it) },
-                                    onTogglePin = { viewModel.togglePinApp(it) },
                                     onOpenAppInfo = { viewModel.openAppInfo(it) },
                                     onBack = { viewModel.navigateTo(LauncherDestination.HOME) }
                                 )
@@ -297,6 +291,7 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                                     onToggleLightweightBackground = { viewModel.setLightweightBackground(it) },
                                     onToggleReduceAnimations = { viewModel.setReduceAnimations(it) },
                                     onOpenWifiSettings = { viewModel.openWifiSettings() },
+                                    onOpenNotificationAccess = { viewModel.openNotificationListenerSettings() },
                                     onReconnectMediaBrowser = { viewModel.reconnectMediaBrowser() },
                                     onOpenHomeSettings = { viewModel.openHomeLauncherSettings() },
                                     onBack = { viewModel.navigateTo(LauncherDestination.HOME) }
@@ -334,6 +329,7 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                             currentDestination = destination,
                             onHomeClick = { viewModel.navigateTo(LauncherDestination.HOME) },
                             onYandexMusicClick = { viewModel.openYandexMusic() },
+                            onClimateClick = { viewModel.launchClimate() },
                             onRadioClick = { viewModel.launchRadio() },
                             onPhoneClick = { viewModel.launchPhone() },
                             onAppsClick = { viewModel.navigateTo(LauncherDestination.APPS) }
