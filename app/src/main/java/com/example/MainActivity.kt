@@ -255,7 +255,8 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                             onUpdateClick = { activeUpdateDialog = it },
                             onCycleDim = { viewModel.cycleWallpaperDimPreset() },
                             onOpenSettings = { viewModel.navigateTo(LauncherDestination.SETTINGS) },
-                            onOpenApps = { viewModel.navigateTo(LauncherDestination.APPS) }
+                            onOpenApps = { viewModel.navigateTo(LauncherDestination.APPS) },
+                            onAndroidAutoClick = { viewModel.launchAndroidAuto() }
                         )
                     }
 
@@ -325,7 +326,6 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxSize()
                         ) {
                             screenContent(destination)
                         }
@@ -337,8 +337,7 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                                     fadeOut(animationSpec = tween(120))
                             },
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxSize(),
+                                .weight(1f),
                             label = "launcher_screen"
                         ) { screen ->
                             screenContent(screen)

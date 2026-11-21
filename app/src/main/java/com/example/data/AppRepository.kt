@@ -209,16 +209,18 @@ class AppRepository(private val context: Context) {
     }
 
     fun launchAndroidAuto(): Result<Unit> = runCatching {
-        // Штатный ярлык Open Headunit «Connect» (connect_last):
-        // подключается к последнему телефону по USB или Wi-Fi без кабеля.
-        val intent = Intent("com.andrerinas.openheadunit.ACTION_CONNECT")
+        // Открываем видимое окно Open Headunit. Раньше здесь был фоновый
+        // ACTION_CONNECT -> AutomationActivity: он сразу закрывался, если
+        // телефон не был в сети, и казалось, что кнопка не работает.
+        val intent = Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
             .setComponent(
                 ComponentName(
                     "com.andrerinas.headunitrevived",
-                    "com.andrerinas.openheadunit.main.AutomationActivity"
+                    "com.andrerinas.openheadunit.main.MainActivity"
                 )
             )
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         context.startActivity(intent)
     }
 

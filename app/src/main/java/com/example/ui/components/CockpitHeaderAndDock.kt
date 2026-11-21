@@ -82,6 +82,7 @@ fun CockpitTopBar(
     onCycleDim: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenApps: () -> Unit,
+    onAndroidAutoClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -244,6 +245,23 @@ fun CockpitTopBar(
                 Icon(
                     imageVector = Icons.Rounded.Apps,
                     contentDescription = "Все приложения"
+                )
+            }
+
+            IconButton(
+                onClick = onAndroidAutoClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .minimumInteractiveComponentSize()
+                    .testTag("top_android_auto_button"),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = CockpitSurface.copy(alpha = 0.88f),
+                    contentColor = HavalAmber
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.DirectionsCar,
+                    contentDescription = "Android Auto"
                 )
             }
 
