@@ -350,6 +350,7 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                             currentDestination = destination,
                             onHomeClick = { viewModel.navigateTo(LauncherDestination.HOME) },
                             onYandexMusicClick = { viewModel.openYandexMusic() },
+                            onAndroidAutoClick = { viewModel.launchAndroidAuto() },
                             onClimateClick = { viewModel.launchClimate() },
                             onRadioClick = { viewModel.launchRadio() },
                             onPhoneClick = { viewModel.launchPhone() },

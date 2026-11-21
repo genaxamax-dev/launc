@@ -208,6 +208,20 @@ class AppRepository(private val context: Context) {
         }
     }
 
+    fun launchAndroidAuto(): Result<Unit> = runCatching {
+        // Штатный ярлык Open Headunit «Connect» (connect_last):
+        // подключается к последнему телефону по USB или Wi-Fi без кабеля.
+        val intent = Intent("com.andrerinas.openheadunit.ACTION_CONNECT")
+            .setComponent(
+                ComponentName(
+                    "com.andrerinas.headunitrevived",
+                    "com.andrerinas.openheadunit.main.AutomationActivity"
+                )
+            )
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
+
     fun launchCarAction(action: HavalCarAction): Result<Unit> {
         val candidates = buildList {
             add(action.primaryPackage to action.primaryActivity)

@@ -176,6 +176,13 @@ class LauncherViewModel(
         launchCarAction(appRepository.getPhoneAction())
     }
 
+    fun launchAndroidAuto() {
+        appRepository.launchAndroidAuto()
+            .onFailure { err ->
+                _statusMessage.value = err.message ?: "Не удалось открыть Android Auto"
+            }
+    }
+
     fun openWifiSettings() {
         appRepository.openWifiSettings()
             .onFailure {

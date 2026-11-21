@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Brightness6
+import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Phone
@@ -332,6 +333,7 @@ fun CockpitBottomDock(
     currentDestination: LauncherDestination,
     onHomeClick: () -> Unit,
     onYandexMusicClick: () -> Unit,
+    onAndroidAutoClick: () -> Unit,
     onClimateClick: () -> Unit,
     onRadioClick: () -> Unit,
     onPhoneClick: () -> Unit,
@@ -370,6 +372,15 @@ fun CockpitBottomDock(
                 accentColor = YandexGold,
                 testTag = "dock_yandex_music_button",
                 onClick = onYandexMusicClick,
+                modifier = Modifier.weight(1f)
+            )
+            DockActionButton(
+                label = "Android Auto",
+                icon = Icons.Rounded.DirectionsCar,
+                isActive = false,
+                accentColor = TelemetryCyan,
+                testTag = "dock_android_auto_button",
+                onClick = onAndroidAutoClick,
                 modifier = Modifier.weight(1f)
             )
             DockActionButton(
