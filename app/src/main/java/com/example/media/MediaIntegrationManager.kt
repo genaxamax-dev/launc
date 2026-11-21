@@ -234,30 +234,66 @@ class MediaIntegrationManager(
         }
     }
 
-    fun setVolume(volume: Int) {
+    fun setVolume(volume: Int, showSystemUi: Boolean = false) {
+        val min = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching { audioManager.getStreamMinVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
+        } else {
+            0
+        }
         val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        val target = volume.coerceIn(0, max)
+        val target = volume.coerceIn(min, max)
+        val before = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val flags = if (showSystemUi) AudioManager.FLAG_SHOW_UI else 0
+
         runCatching {
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, flags)
         }
-        if (target > 0) {
-            lastMutedVolume = target
+
+        var after = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        if (after == before && target != before) {
+            val direction = if (target > before) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            val steps = kotlin.math.abs(target - before).coerceAtMost(30)
+            repeat(steps) {
+                runCatching {
+                    audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, flags)
+                }
+            }
+            after = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         }
-        refreshAudioStatus()
+
+        mediaController?.let { ctrl ->
+            val volControl = runCatching { ctrl.playbackInfo?.volumeControl }.getOrNull()
+            if (volControl == android.media.VolumeProvider.VOLUME_CONTROL_ABSOLUTE) {
+                runCatching { ctrl.setVolumeTo(target, 0) }
+            }
+        }
+
+        if (after > 0) {
+            lastMutedVolume = after
+        }
+        _state.update { current ->
+            current.copy(
+                volumeCurrent = after,
+                volumeMax = max,
+                isMuted = after == 0,
+                isVolumeFixed = audioManager.isVolumeFixed
+            )
+        }
     }
 
     fun stepVolume(delta: Int) {
         val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-        setVolume(current + delta)
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        setVolume((current + delta).coerceIn(0, max), showSystemUi = true)
     }
 
     fun toggleMute() {
         val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         if (current > 0) {
             lastMutedVolume = current
-            setVolume(0)
+            setVolume(0, showSystemUi = true)
         } else {
-            setVolume(lastMutedVolume.coerceAtLeast(6))
+            setVolume(lastMutedVolume.coerceAtLeast(6), showSystemUi = true)
         }
     }
 
@@ -578,7 +614,8 @@ class MediaIntegrationManager(
                 positionMs = pos,
                 volumeCurrent = vol,
                 volumeMax = maxVol,
-                isMuted = vol == 0
+                isMuted = vol == 0,
+                isVolumeFixed = audioManager.isVolumeFixed
             )
         }
     }

@@ -80,6 +80,7 @@ data class MediaPlayerState(
     val volumeCurrent: Int = 12,
     val volumeMax: Int = 30,
     val isMuted: Boolean = false,
+    val isVolumeFixed: Boolean = false,
     val browseItems: List<MediaBrowseItem> = emptyList(),
     val canBrowseYandex: Boolean = false,
     val isNotificationListenerConnected: Boolean = false,
@@ -107,6 +108,9 @@ data class LauncherSettings(
     val showSecondsInClock: Boolean = false,
     val lightweightBackground: Boolean = false,
     val reduceAnimations: Boolean = true,
+    val githubRepo: String = "",
+    val autoCheckUpdates: Boolean = true,
+    val lastUpdateCheckMs: Long = 0L,
     val pinnedPackages: List<String> = listOf(
         "ru.yandex.music",
         "com.adayo.ora.radio",
@@ -115,3 +119,19 @@ data class LauncherSettings(
         "com.android.car.dialer"
     )
 )
+
+@Immutable
+sealed class UpdateCheckState {
+    data object Idle : UpdateCheckState()
+    data object RepoNotConfigured : UpdateCheckState()
+    data object Checking : UpdateCheckState()
+    data class UpToDate(val currentVersion: String) : UpdateCheckState()
+    data class UpdateAvailable(
+        val currentVersion: String,
+        val latestVersion: String,
+        val releaseNotes: String,
+        val releaseUrl: String,
+        val apkUrl: String?
+    ) : UpdateCheckState()
+    data class Error(val message: String) : UpdateCheckState()
+}

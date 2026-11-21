@@ -27,14 +27,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -48,18 +56,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.LauncherDestination
+import com.example.model.UpdateCheckState
 import com.example.ui.LauncherViewModel
 import com.example.ui.components.CockpitBottomDock
 import com.example.ui.components.CockpitTopBar
 import com.example.ui.screens.AppDrawerScreen
 import com.example.ui.screens.HomeDashboardScreen
 import com.example.ui.screens.LauncherSettingsScreen
+import com.example.ui.theme.ActiveEmerald
 import com.example.ui.theme.CockpitObsidian
 import com.example.ui.theme.CockpitSurface
 import com.example.ui.theme.CockpitSurfaceElevated
 import com.example.ui.theme.HavalAmber
 import com.example.ui.theme.M6LauncherTheme
 import com.example.ui.theme.TextPrimary
+import com.example.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -100,10 +111,13 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
     val mediaState by viewModel.mediaState.collectAsStateWithLifecycle()
     val wifiState by viewModel.wifiState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val filteredApps by viewModel.filteredApps.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
+
+    var activeUpdateDialog by remember { mutableStateOf<UpdateCheckState.UpdateAvailable?>(null) }
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -235,8 +249,10 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                         CockpitTopBar(
                             activeSourceLabel = mediaState.activeSourceLabel,
                             wifiState = wifiState,
+                            updateState = updateState,
                             showSeconds = settings.showSecondsInClock,
                             onWifiClick = { viewModel.openWifiSettings() },
+                            onUpdateClick = { activeUpdateDialog = it },
                             onCycleDim = { viewModel.cycleWallpaperDimPreset() },
                             onOpenSettings = { viewModel.navigateTo(LauncherDestination.SETTINGS) },
                             onOpenApps = { viewModel.navigateTo(LauncherDestination.APPS) }
@@ -284,12 +300,17 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                                     settings = settings,
                                     mediaState = mediaState,
                                     wifiState = wifiState,
+                                    updateState = updateState,
                                     onWallpaperDimChange = { viewModel.setWallpaperDim(it) },
                                     onToggleLeftInset = { viewModel.setEnforceHavalLeftInset(it) },
                                     onToggleTopInset = { viewModel.setEnforceHavalTopInset(it) },
                                     onToggleShowSeconds = { viewModel.setShowSecondsInClock(it) },
                                     onToggleLightweightBackground = { viewModel.setLightweightBackground(it) },
                                     onToggleReduceAnimations = { viewModel.setReduceAnimations(it) },
+                                    onSaveGithubRepo = { viewModel.saveGithubRepo(it) },
+                                    onToggleAutoCheckUpdates = { viewModel.setAutoCheckUpdates(it) },
+                                    onCheckUpdatesNow = { viewModel.checkForUpdates(manual = true) },
+                                    onOpenUpdateLink = { viewModel.openUpdateLink(it) },
                                     onOpenWifiSettings = { viewModel.openWifiSettings() },
                                     onOpenNotificationAccess = { viewModel.openNotificationListenerSettings() },
                                     onReconnectMediaBrowser = { viewModel.reconnectMediaBrowser() },
@@ -337,6 +358,47 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                     }
                 }
             }
+        }
+
+        val dialogUpdate = activeUpdateDialog
+        if (dialogUpdate != null) {
+            AlertDialog(
+                onDismissRequest = { activeUpdateDialog = null },
+                containerColor = CockpitSurfaceElevated,
+                titleContentColor = TextPrimary,
+                textContentColor = TextSecondary,
+                title = {
+                    Text("Доступно обновление ${dialogUpdate.latestVersion}")
+                },
+                text = {
+                    val notes = dialogUpdate.releaseNotes.take(400).ifBlank {
+                        "Новая сборка готова на GitHub (текущая: v${dialogUpdate.currentVersion})."
+                    }
+                    Text(
+                        text = notes,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.openUpdateLink(dialogUpdate.apkUrl ?: dialogUpdate.releaseUrl)
+                            activeUpdateDialog = null
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ActiveEmerald,
+                            contentColor = CockpitObsidian
+                        )
+                    ) {
+                        Text(if (dialogUpdate.apkUrl != null) "Скачать APK" else "Открыть релиз")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { activeUpdateDialog = null }) {
+                        Text("Позже", color = HavalAmber)
+                    }
+                }
+            )
         }
     }
 }

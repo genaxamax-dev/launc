@@ -15,7 +15,10 @@ import com.example.model.LauncherDestination
 import com.example.model.LauncherSettings
 import com.example.model.MediaBrowseItem
 import com.example.model.MediaPlayerState
+import com.example.model.UpdateCheckState
+import com.example.model.WifiConnectionStatus
 import com.example.model.WifiState
+import com.example.network.GitHubUpdateChecker
 import com.example.network.WifiMonitor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,6 +33,10 @@ class LauncherViewModel(
     private val appRepository: AppRepository,
     private val preferencesRepository: LauncherPreferencesRepository
 ) : AndroidViewModel(application) {
+
+    companion object {
+        private const val AUTO_CHECK_INTERVAL_MS = 6L * 60L * 60L * 1000L // 6 hours
+    }
 
     private val mediaManager = MediaIntegrationManager(application, viewModelScope)
     private val wifiMonitor = WifiMonitor(application)
@@ -46,7 +53,12 @@ class LauncherViewModel(
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
 
+    private val _updateState = MutableStateFlow<UpdateCheckState>(UpdateCheckState.Idle)
+    val updateState: StateFlow<UpdateCheckState> = _updateState.asStateFlow()
+
     private val _rawApps = MutableStateFlow<List<InstalledApp>>(emptyList())
+
+    private var autoCheckedThisSession = false
 
     val settings: StateFlow<LauncherSettings> = preferencesRepository.settingsFlow
         .stateIn(
@@ -85,6 +97,25 @@ class LauncherViewModel(
             appRepository.observePackageChanges().collect {
                 _rawApps.value = appRepository.loadInstalledApps(emptySet())
                 mediaManager.refreshYandexPackageStatus()
+            }
+        }
+        viewModelScope.launch {
+            combine(wifiState, settings) { wifi, currentSettings ->
+                wifi to currentSettings
+            }.collect { (wifi, currentSettings) ->
+                if (!autoCheckedThisSession &&
+                    wifi.status == WifiConnectionStatus.CONNECTED &&
+                    currentSettings.autoCheckUpdates &&
+                    currentSettings.githubRepo.isNotBlank()
+                ) {
+                    val elapsed = System.currentTimeMillis() - currentSettings.lastUpdateCheckMs
+                    if (elapsed >= AUTO_CHECK_INTERVAL_MS || currentSettings.lastUpdateCheckMs == 0L) {
+                        autoCheckedThisSession = true
+                        checkForUpdates(manual = false)
+                    } else {
+                        autoCheckedThisSession = true
+                    }
+                }
             }
         }
     }
@@ -206,6 +237,69 @@ class LauncherViewModel(
         mediaManager.openYandexDeepLink("yandexmusic://search/", "")
             .onFailure { err ->
                 _statusMessage.value = err.message ?: "Яндекс.Музыка не найдена"
+            }
+    }
+
+    // GitHub Updates
+    fun saveGithubRepo(rawInput: String) {
+        val normalized = GitHubUpdateChecker.normalizeRepo(rawInput)
+        viewModelScope.launch {
+            if (rawInput.isBlank()) {
+                preferencesRepository.setGithubRepo("")
+                _updateState.value = UpdateCheckState.RepoNotConfigured
+                _statusMessage.value = "Репозиторий GitHub очищен"
+            } else if (normalized.isEmpty()) {
+                _statusMessage.value = "Укажите репозиторий в формате owner/repo или ссылку GitHub"
+            } else {
+                preferencesRepository.setGithubRepo(normalized)
+                _statusMessage.value = "Репозиторий сохранён: $normalized"
+                checkForUpdates(manual = true)
+            }
+        }
+    }
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setAutoCheckUpdates(enabled) }
+    }
+
+    fun checkForUpdates(manual: Boolean = true) {
+        val repo = settings.value.githubRepo
+        if (repo.isBlank()) {
+            _updateState.value = UpdateCheckState.RepoNotConfigured
+            if (manual) {
+                _statusMessage.value = "Укажите свой репозиторий GitHub в настройках"
+            }
+            return
+        }
+        if (_updateState.value is UpdateCheckState.Checking) return
+
+        viewModelScope.launch {
+            _updateState.value = UpdateCheckState.Checking
+            val result = GitHubUpdateChecker.checkLatestRelease(repo)
+            _updateState.value = result
+            if (result is UpdateCheckState.UpToDate || result is UpdateCheckState.UpdateAvailable) {
+                preferencesRepository.setLastUpdateCheckMs(System.currentTimeMillis())
+            }
+            if (manual) {
+                when (result) {
+                    is UpdateCheckState.UpdateAvailable ->
+                        _statusMessage.value = "Доступно обновление ${result.latestVersion}"
+                    is UpdateCheckState.UpToDate ->
+                        _statusMessage.value = "Установлена актуальная версия (${result.currentVersion})"
+                    is UpdateCheckState.Error ->
+                        _statusMessage.value = result.message
+                    UpdateCheckState.RepoNotConfigured ->
+                        _statusMessage.value = "Укажите репозиторий GitHub"
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    fun openUpdateLink(url: String) {
+        appRepository.openUrl(url)
+            .onFailure {
+                _statusMessage.value = "Не удалось открыть ссылку в браузере"
             }
     }
 

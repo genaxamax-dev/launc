@@ -17,8 +17,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.AlertDialog
@@ -29,6 +31,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -38,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,8 +52,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.BuildConfig
 import com.example.model.LauncherSettings
 import com.example.model.MediaPlayerState
+import com.example.model.UpdateCheckState
 import com.example.model.WifiConnectionStatus
 import com.example.model.WifiState
 import com.example.ui.theme.ActiveEmerald
@@ -59,6 +66,7 @@ import com.example.ui.theme.CockpitSurfaceBright
 import com.example.ui.theme.CockpitSurfaceElevated
 import com.example.ui.theme.HavalAmber
 import com.example.ui.theme.TelemetryCyan
+import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.YandexGold
@@ -68,12 +76,17 @@ fun LauncherSettingsScreen(
     settings: LauncherSettings,
     mediaState: MediaPlayerState,
     wifiState: WifiState,
+    updateState: UpdateCheckState,
     onWallpaperDimChange: (Float) -> Unit,
     onToggleLeftInset: (Boolean) -> Unit,
     onToggleTopInset: (Boolean) -> Unit,
     onToggleShowSeconds: (Boolean) -> Unit,
     onToggleLightweightBackground: (Boolean) -> Unit,
     onToggleReduceAnimations: (Boolean) -> Unit,
+    onSaveGithubRepo: (String) -> Unit,
+    onToggleAutoCheckUpdates: (Boolean) -> Unit,
+    onCheckUpdatesNow: () -> Unit,
+    onOpenUpdateLink: (String) -> Unit,
     onOpenWifiSettings: () -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onReconnectMediaBrowser: () -> Unit,
@@ -83,6 +96,13 @@ fun LauncherSettingsScreen(
 ) {
     BackHandler(onBack = onBack)
     var showAdbDialog by remember { mutableStateOf(false) }
+    var repoDraft by remember { mutableStateOf(settings.githubRepo) }
+
+    LaunchedEffect(settings.githubRepo) {
+        if (settings.githubRepo.isNotEmpty()) {
+            repoDraft = settings.githubRepo
+        }
+    }
 
     Surface(
         modifier = modifier
@@ -128,14 +148,142 @@ fun LauncherSettingsScreen(
                         color = TextPrimary
                     )
                     Text(
-                        text = "Производительность, сеть Wi-Fi, отступы 1920×720 и Яндекс.Музыка",
+                        text = "Версия v${BuildConfig.VERSION_NAME} • Обновления GitHub, оптимизация и диагностика",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
                 }
             }
 
-            // Section 1: Performance Optimization for Weak Hardware
+            // Section 1: GitHub Auto Update
+            SettingsCard(title = "АВТООБНОВЛЕНИЕ С GITHUB") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = repoDraft,
+                            onValueChange = { repoDraft = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("settings_github_repo_input"),
+                            label = { Text("Репозиторий (owner/repo или URL)") },
+                            placeholder = { Text("например: genaxamax/haval-m6-launcher") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = HavalAmber,
+                                unfocusedBorderColor = CockpitHairline,
+                                focusedContainerColor = CockpitSurface,
+                                unfocusedContainerColor = CockpitSurface,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedLabelColor = HavalAmber,
+                                unfocusedLabelColor = TextSecondary
+                            )
+                        )
+
+                        Button(
+                            onClick = { onSaveGithubRepo(repoDraft) },
+                            modifier = Modifier
+                                .height(54.dp)
+                                .testTag("settings_save_repo_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = HavalAmber,
+                                contentColor = CockpitObsidian
+                            )
+                        ) {
+                            Text("Сохранить")
+                        }
+                    }
+
+                    SettingsSwitchRow(
+                        title = "Автопроверка обновлений по Wi-Fi",
+                        subtitle = "Фоновая проверка новых релизов на GitHub при подключении к сети (раз в 6 часов)",
+                        checked = settings.autoCheckUpdates,
+                        testTag = "settings_auto_update_switch",
+                        onCheckedChange = onToggleAutoCheckUpdates
+                    )
+
+                    val (statusText, statusColor) = when (updateState) {
+                        UpdateCheckState.Idle -> {
+                            if (settings.githubRepo.isBlank()) {
+                                "Укажите репозиторий GitHub" to TextMuted
+                            } else {
+                                "Готово к проверке (${settings.githubRepo})" to TextSecondary
+                            }
+                        }
+                        UpdateCheckState.RepoNotConfigured -> "Репозиторий GitHub не задан" to HavalAmber
+                        UpdateCheckState.Checking -> "Проверка релизов на GitHub…" to TelemetryCyan
+                        is UpdateCheckState.UpToDate -> "Актуальная версия v${updateState.currentVersion}" to ActiveEmerald
+                        is UpdateCheckState.UpdateAvailable -> "Доступна версия ${updateState.latestVersion}" to HavalAmber
+                        is UpdateCheckState.Error -> updateState.message to HavalAmber
+                    }
+
+                    DiagnosticRow(
+                        label = "Текущая версия: v${BuildConfig.VERSION_NAME}",
+                        value = statusText,
+                        accent = statusColor
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = onCheckUpdatesNow,
+                            enabled = updateState !is UpdateCheckState.Checking,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp)
+                                .testTag("settings_check_update_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = TelemetryCyan,
+                                contentColor = CockpitObsidian
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SystemUpdate,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Проверить сейчас")
+                        }
+
+                        if (updateState is UpdateCheckState.UpdateAvailable) {
+                            Button(
+                                onClick = {
+                                    onOpenUpdateLink(updateState.apkUrl ?: updateState.releaseUrl)
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(50.dp)
+                                    .testTag("settings_download_update_button"),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ActiveEmerald,
+                                    contentColor = CockpitObsidian
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Download,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Скачать ${updateState.latestVersion}")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 2: Performance Optimization for Weak Hardware
             SettingsCard(title = "ОПТИМИЗАЦИЯ ДЛЯ СЛАБОГО ЖЕЛЕЗА (i.MX8Q)") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SettingsSwitchRow(
@@ -156,7 +304,7 @@ fun LauncherSettingsScreen(
                 }
             }
 
-            // Section 2: Display & Haval M6 Safe Area
+            // Section 3: Display & Haval M6 Safe Area
             SettingsCard(title = "ЭКРАН И ОТСТУПЫ СИСТЕМНЫХ ПАНЕЛЕЙ") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (!settings.lightweightBackground) {
@@ -216,7 +364,7 @@ fun LauncherSettingsScreen(
                 }
             }
 
-            // Section 3: Wi-Fi & Yandex Music Diagnostics
+            // Section 4: Wi-Fi & Yandex Music Diagnostics
             SettingsCard(title = "СЕТЬ WI-FI И ИНТЕГРАЦИЯ ЯНДЕКС.МУЗЫКИ") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val (wifiText, wifiColor) = when (wifiState.status) {
@@ -339,7 +487,7 @@ fun LauncherSettingsScreen(
                 }
             }
 
-            // Section 4: Haval M6 ADB Installation & Rollback Reference
+            // Section 5: Haval M6 ADB Installation & Rollback Reference
             SettingsCard(title = "УСТАНОВКА НА ГОЛОВНОЕ УСТРОЙСТВО HAVAL M6") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

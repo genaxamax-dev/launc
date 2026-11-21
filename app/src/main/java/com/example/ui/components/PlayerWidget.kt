@@ -56,6 +56,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,6 +92,7 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.YandexGold
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun YandexPlayerWidget(
@@ -447,6 +452,13 @@ fun YandexPlayerWidget(
             }
 
             // Volume Control Strip
+            var dragVolume by remember { mutableStateOf<Float?>(null) }
+            var lastSentVolume by remember { mutableIntStateOf(-1) }
+            val maxVolFloat = mediaState.volumeMax.toFloat().coerceAtLeast(1f)
+            val displayedVolumeFloat = (dragVolume ?: mediaState.volumeCurrent.toFloat())
+                .coerceIn(0f, maxVolFloat)
+            val displayedVolumeInt = displayedVolumeFloat.roundToInt()
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -469,9 +481,23 @@ fun YandexPlayerWidget(
                 }
 
                 Slider(
-                    value = mediaState.volumeCurrent.toFloat(),
-                    onValueChange = { onVolumeChange(it.toInt()) },
-                    valueRange = 0f..mediaState.volumeMax.toFloat().coerceAtLeast(1f),
+                    value = displayedVolumeFloat,
+                    onValueChange = { raw ->
+                        dragVolume = raw
+                        val target = raw.roundToInt()
+                        if (target != lastSentVolume) {
+                            lastSentVolume = target
+                            onVolumeChange(target)
+                        }
+                    },
+                    onValueChangeFinished = {
+                        dragVolume?.let { raw ->
+                            onVolumeChange(raw.roundToInt())
+                        }
+                        dragVolume = null
+                        lastSentVolume = -1
+                    },
+                    valueRange = 0f..maxVolFloat,
                     modifier = Modifier
                         .weight(1f)
                         .testTag("volume_slider"),
@@ -496,9 +522,13 @@ fun YandexPlayerWidget(
                 }
 
                 Text(
-                    text = "${mediaState.volumeCurrent}/${mediaState.volumeMax}",
+                    text = if (mediaState.isVolumeFixed) {
+                        "ФИКС"
+                    } else {
+                        "$displayedVolumeInt/${mediaState.volumeMax}"
+                    },
                     style = MaterialTheme.typography.labelLarge,
-                    color = HavalAmberBright,
+                    color = if (mediaState.isVolumeFixed) TextMuted else HavalAmberBright,
                     modifier = Modifier.padding(end = 8.dp)
                 )
             }

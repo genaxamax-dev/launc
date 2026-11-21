@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.model.LauncherDestination
+import com.example.model.UpdateCheckState
 import com.example.model.WifiConnectionStatus
 import com.example.model.WifiState
 import com.example.ui.theme.ActiveEmerald
@@ -72,8 +74,10 @@ import java.util.Locale
 fun CockpitTopBar(
     activeSourceLabel: String,
     wifiState: WifiState,
+    updateState: UpdateCheckState,
     showSeconds: Boolean,
     onWifiClick: () -> Unit,
+    onUpdateClick: (UpdateCheckState.UpdateAvailable) -> Unit,
     onCycleDim: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenApps: () -> Unit,
@@ -166,11 +170,43 @@ fun CockpitTopBar(
             }
         }
 
-        // Right: Wi-Fi status pill + Cockpit Utility Actions
+        // Right: Update badge + Wi-Fi status pill + Cockpit Utility Actions
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (updateState is UpdateCheckState.UpdateAvailable) {
+                Surface(
+                    onClick = { onUpdateClick(updateState) },
+                    modifier = Modifier
+                        .height(48.dp)
+                        .minimumInteractiveComponentSize()
+                        .testTag("top_update_pill"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = HavalAmber.copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, HavalAmber)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SystemUpdate,
+                            contentDescription = "Доступно обновление",
+                            tint = HavalAmber,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "Обновление ${updateState.latestVersion}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = TextPrimary,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
             WifiStatusPill(
                 wifiState = wifiState,
                 onClick = onWifiClick

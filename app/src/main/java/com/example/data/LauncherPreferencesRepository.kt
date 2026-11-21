@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.LauncherSettings
@@ -25,6 +26,9 @@ class LauncherPreferencesRepository(private val context: Context) {
         val SHOW_SECONDS = booleanPreferencesKey("show_seconds_in_clock")
         val LIGHTWEIGHT_BG = booleanPreferencesKey("lightweight_background")
         val REDUCE_ANIMATIONS = booleanPreferencesKey("reduce_animations")
+        val GITHUB_REPO = stringPreferencesKey("github_repo")
+        val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
+        val LAST_UPDATE_CHECK_MS = longPreferencesKey("last_update_check_ms")
         val PINNED_PACKAGES = stringPreferencesKey("pinned_packages_csv")
     }
 
@@ -47,6 +51,9 @@ class LauncherPreferencesRepository(private val context: Context) {
             showSecondsInClock = prefs[Keys.SHOW_SECONDS] ?: false,
             lightweightBackground = prefs[Keys.LIGHTWEIGHT_BG] ?: false,
             reduceAnimations = prefs[Keys.REDUCE_ANIMATIONS] ?: true,
+            githubRepo = prefs[Keys.GITHUB_REPO] ?: "",
+            autoCheckUpdates = prefs[Keys.AUTO_CHECK_UPDATES] ?: true,
+            lastUpdateCheckMs = prefs[Keys.LAST_UPDATE_CHECK_MS] ?: 0L,
             pinnedPackages = pinnedList
         )
     }
@@ -84,6 +91,24 @@ class LauncherPreferencesRepository(private val context: Context) {
     suspend fun setReduceAnimations(enabled: Boolean) {
         context.launcherDataStore.edit { prefs ->
             prefs[Keys.REDUCE_ANIMATIONS] = enabled
+        }
+    }
+
+    suspend fun setGithubRepo(repo: String) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.GITHUB_REPO] = repo.trim()
+        }
+    }
+
+    suspend fun setAutoCheckUpdates(enabled: Boolean) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.AUTO_CHECK_UPDATES] = enabled
+        }
+    }
+
+    suspend fun setLastUpdateCheckMs(timestampMs: Long) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.LAST_UPDATE_CHECK_MS] = timestampMs
         }
     }
 
