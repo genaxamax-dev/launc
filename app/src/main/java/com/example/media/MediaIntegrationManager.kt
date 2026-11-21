@@ -39,6 +39,7 @@ class MediaIntegrationManager(
 ) {
     companion object {
         const val YANDEX_MUSIC_PKG = "ru.yandex.music"
+        const val YANDEX_MUSIC_LITE_PKG = "YandexMusicLite.KorenskoyR"
 
         private val notificationUpdates = MutableSharedFlow<Pair<String?, String?>>(extraBufferCapacity = 8)
 
@@ -146,17 +147,14 @@ class MediaIntegrationManager(
     }
 
     fun refreshYandexPackageStatus() {
-        val pkgInfo = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getPackageInfo(YANDEX_MUSIC_PKG, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getPackageInfo(YANDEX_MUSIC_PKG, 0)
-            }
-        }.getOrNull()
+        val officialInfo = getPackageInfoOrNull(YANDEX_MUSIC_PKG)
+        val liteInfo = getPackageInfoOrNull(YANDEX_MUSIC_LITE_PKG)
+        val pkgInfo = liteInfo ?: officialInfo
 
         val installed = pkgInfo != null
-        val version = pkgInfo?.versionName
+        val version = pkgInfo?.let { info ->
+            if (liteInfo != null) "Lite ${info.versionName}" else info.versionName
+        }
         _state.update { current ->
             current.copy(
                 isYandexMusicInstalled = installed,
@@ -164,7 +162,7 @@ class MediaIntegrationManager(
                 trackTitle = if (current.connectionMode == MediaConnectionMode.MEDIA_KEYS_FALLBACK &&
                     current.trackTitle == "Яндекс.Музыка"
                 ) {
-                    if (installed) "Яндекс.Музыка" else "Универсальный медиаплеер"
+                    if (installed) "Яндекс.Музыка" else "Музыкальное приложение не найдено"
                 } else {
                     current.trackTitle
                 },
@@ -264,26 +262,36 @@ class MediaIntegrationManager(
     }
 
     fun openYandexMusic(): Result<Unit> = runCatching {
-        val launch = pm.getLaunchIntentForPackage(YANDEX_MUSIC_PKG)?.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        if (launch != null) {
-            context.startActivity(launch)
-        } else {
-            val musicIntent = Intent.makeMainSelectorActivity(
-                Intent.ACTION_MAIN,
-                Intent.CATEGORY_APP_MUSIC
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (musicIntent.resolveActivity(pm) != null) {
-                context.startActivity(musicIntent)
-            } else {
-                error("Яндекс.Музыка не установлена на устройстве")
-            }
-        }
+        val launch = getPreferredYandexLaunchIntent()
+            ?: error("Яндекс.Музыка и Yandex Music Lite не установлены")
+        context.startActivity(launch)
     }
 
     fun openYandexDeepLink(uriString: String, fallbackSearchQuery: String? = null): Result<Unit> {
         return runCatching {
+            // Lite is a separate client and does not claim Yandex's private URI scheme.
+            // If the official app is absent, open Lite rather than falling through to
+            // Android's generic music app (usually com.android.music on this head unit).
+            if (!isPackageInstalled(YANDEX_MUSIC_PKG)) {
+                if (!fallbackSearchQuery.isNullOrBlank()) {
+                    val liteSearchIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                        setPackage(YANDEX_MUSIC_LITE_PKG)
+                        putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+                        putExtra(SearchManager.QUERY, fallbackSearchQuery)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    if (liteSearchIntent.resolveActivity(pm) != null) {
+                        context.startActivity(liteSearchIntent)
+                        return@runCatching
+                    }
+                }
+                val liteLaunch = pm.getLaunchIntentForPackage(YANDEX_MUSIC_LITE_PKG)?.apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                } ?: error("Yandex Music Lite не установлена")
+                context.startActivity(liteLaunch)
+                return@runCatching
+            }
+
             val deepLinkIntent = Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
                 setPackage(YANDEX_MUSIC_PKG)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -306,12 +314,29 @@ class MediaIntegrationManager(
                 }
             }
 
-            val launch = pm.getLaunchIntentForPackage(YANDEX_MUSIC_PKG)?.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            } ?: error("Яндекс.Музыка не установлена на устройстве")
+            val launch = getPreferredYandexLaunchIntent()
+                ?: error("Яндекс.Музыка и Yandex Music Lite не установлены")
             context.startActivity(launch)
         }
     }
+
+    private fun getPreferredYandexLaunchIntent(): Intent? =
+        (pm.getLaunchIntentForPackage(YANDEX_MUSIC_LITE_PKG)
+            ?: pm.getLaunchIntentForPackage(YANDEX_MUSIC_PKG))
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    private fun isPackageInstalled(packageName: String): Boolean = runCatching {
+        getPackageInfoOrNull(packageName) ?: error("not installed")
+    }.isSuccess
+
+    private fun getPackageInfoOrNull(packageName: String) = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(packageName, 0)
+        }
+    }.getOrNull()
 
     fun reconnectMediaBrowser() {
         disconnectSession()
@@ -429,7 +454,8 @@ class MediaIntegrationManager(
         updateFromMetadata(controller.metadata)
         updateFromPlaybackState(controller.playbackState)
 
-        val isYandex = controller.packageName == YANDEX_MUSIC_PKG
+        val isYandex = controller.packageName == YANDEX_MUSIC_PKG ||
+            controller.packageName == YANDEX_MUSIC_LITE_PKG
         _state.update {
             it.copy(
                 connectionMode = MediaConnectionMode.MEDIA_BROWSER_CONNECTED,

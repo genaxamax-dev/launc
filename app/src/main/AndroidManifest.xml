@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <queries>
         <intent>
@@ -15,6 +16,7 @@
             <action android:name="android.media.browse.MediaBrowserService" />
         </intent>
         <package android:name="ru.yandex.music" />
+        <package android:name="YandexMusicLite.KorenskoyR" />
         <package android:name="com.adayo.ora.radio" />
         <package android:name="com.adayo.media" />
         <package android:name="com.adayo.bluetooth" />
@@ -57,6 +59,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".LiteBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.ADAYO_BOOT_COMPLETED" />
+                <action android:name="com.example.action.LAUNCH_LITE_AFTER_BOOT" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name="com.example.media.YandexNotificationListener"
