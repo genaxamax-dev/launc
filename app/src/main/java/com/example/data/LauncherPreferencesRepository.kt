@@ -9,7 +9,9 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.model.HeadlightMode
 import com.example.model.LauncherSettings
+import com.example.model.WeatherSourceMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -29,6 +31,12 @@ class LauncherPreferencesRepository(private val context: Context) {
         val GITHUB_REPO = stringPreferencesKey("github_repo")
         val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
         val LAST_UPDATE_CHECK_MS = longPreferencesKey("last_update_check_ms")
+        val CLIMATE_TEMP_C = floatPreferencesKey("climate_temp_c")
+        val CLIMATE_AC_ON = booleanPreferencesKey("climate_ac_on")
+        val HEADLIGHT_MODE = stringPreferencesKey("headlight_mode")
+        val WEATHER_MODE = stringPreferencesKey("weather_mode")
+        val WEATHER_CITY = stringPreferencesKey("weather_city")
+        val YANDEX_WEATHER_API_KEY = stringPreferencesKey("yandex_weather_api_key")
         val PINNED_PACKAGES = stringPreferencesKey("pinned_packages_csv")
     }
 
@@ -54,6 +62,16 @@ class LauncherPreferencesRepository(private val context: Context) {
             githubRepo = prefs[Keys.GITHUB_REPO] ?: "",
             autoCheckUpdates = prefs[Keys.AUTO_CHECK_UPDATES] ?: true,
             lastUpdateCheckMs = prefs[Keys.LAST_UPDATE_CHECK_MS] ?: 0L,
+            climateTempC = (prefs[Keys.CLIMATE_TEMP_C] ?: 22.0f).coerceIn(16.0f, 32.0f),
+            climateAcOn = prefs[Keys.CLIMATE_AC_ON] ?: true,
+            headlightMode = runCatching {
+                HeadlightMode.valueOf(prefs[Keys.HEADLIGHT_MODE] ?: HeadlightMode.AUTO.name)
+            }.getOrDefault(HeadlightMode.AUTO),
+            weatherMode = runCatching {
+                WeatherSourceMode.valueOf(prefs[Keys.WEATHER_MODE] ?: WeatherSourceMode.AUTO_NETWORK_OR_SEASON.name)
+            }.getOrDefault(WeatherSourceMode.AUTO_NETWORK_OR_SEASON),
+            weatherCity = prefs[Keys.WEATHER_CITY] ?: "",
+            yandexWeatherApiKey = prefs[Keys.YANDEX_WEATHER_API_KEY] ?: "",
             pinnedPackages = pinnedList
         )
     }
@@ -109,6 +127,42 @@ class LauncherPreferencesRepository(private val context: Context) {
     suspend fun setLastUpdateCheckMs(timestampMs: Long) {
         context.launcherDataStore.edit { prefs ->
             prefs[Keys.LAST_UPDATE_CHECK_MS] = timestampMs
+        }
+    }
+
+    suspend fun setClimateTempC(tempC: Float) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.CLIMATE_TEMP_C] = tempC.coerceIn(16.0f, 32.0f)
+        }
+    }
+
+    suspend fun setClimateAcOn(enabled: Boolean) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.CLIMATE_AC_ON] = enabled
+        }
+    }
+
+    suspend fun setHeadlightMode(mode: HeadlightMode) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.HEADLIGHT_MODE] = mode.name
+        }
+    }
+
+    suspend fun setWeatherMode(mode: WeatherSourceMode) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.WEATHER_MODE] = mode.name
+        }
+    }
+
+    suspend fun setWeatherCity(city: String) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.WEATHER_CITY] = city.trim()
+        }
+    }
+
+    suspend fun setYandexWeatherApiKey(apiKey: String) {
+        context.launcherDataStore.edit { prefs ->
+            prefs[Keys.YANDEX_WEATHER_API_KEY] = apiKey.trim()
         }
     }
 

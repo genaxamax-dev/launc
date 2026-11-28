@@ -131,9 +131,9 @@ fun YandexPlayerWidget(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Top source & Yandex Music status header
             Row(
@@ -214,59 +214,56 @@ fun YandexPlayerWidget(
 
             // Album Art + Track Details
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 AlbumArtBox(
                     mediaState = mediaState,
                     modifier = Modifier
-                        .size(92.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .size(68.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .clickable(onClick = onOpenYandexMusic)
                 )
 
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
                         text = mediaState.trackTitle,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         color = TextPrimary,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = mediaState.artistName,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         EqualizerMiniIndicator(
                             isPlaying = mediaState.isPlaying,
                             animate = mediaState.isPlaying && !reduceAnimations
                         )
                         Text(
-                            text = if (mediaState.isPlaying) "Сейчас играет" else "Пауза / Ожидание",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (mediaState.isPlaying) ActiveEmerald else TextMuted
+                            text = if (mediaState.isPlaying) "Сейчас играет" else mediaState.diagnosticStatus,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when {
+                                mediaState.isPlaying -> ActiveEmerald
+                                mediaState.isNotificationListenerConnected -> TextMuted
+                                else -> HavalAmber
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Text(
-                        text = mediaState.diagnosticStatus,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (mediaState.isNotificationListenerConnected) TextMuted else HavalAmber,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
             }
 
@@ -318,9 +315,7 @@ fun YandexPlayerWidget(
 
             // Primary Driver-Friendly Transport Controls
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -329,7 +324,7 @@ fun YandexPlayerWidget(
                     contentDescription = if (mediaState.isMuted) "Включить звук" else "Выключить звук",
                     containerColor = CockpitSurfaceElevated,
                     contentColor = if (mediaState.isMuted) HavalAmber else TextSecondary,
-                    size = 52.dp,
+                    size = 48.dp,
                     testTag = "player_mute_button",
                     onClick = onToggleMute
                 )
@@ -339,7 +334,7 @@ fun YandexPlayerWidget(
                     contentDescription = "Предыдущий трек",
                     containerColor = CockpitSurfaceBright,
                     contentColor = TextPrimary,
-                    size = 60.dp,
+                    size = 50.dp,
                     testTag = "player_prev_button",
                     onClick = onPrevious
                 )
@@ -348,7 +343,8 @@ fun YandexPlayerWidget(
                 Surface(
                     onClick = onTogglePlayPause,
                     modifier = Modifier
-                        .size(72.dp)
+                        .size(58.dp)
+                        .minimumInteractiveComponentSize()
                         .testTag("player_play_pause_button"),
                     shape = CircleShape,
                     color = if (mediaState.isPlaying) HavalAmber else YandexGold
@@ -358,7 +354,7 @@ fun YandexPlayerWidget(
                             imageVector = if (mediaState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription = if (mediaState.isPlaying) "Пауза" else "Воспроизвести",
                             tint = CockpitObsidian,
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(32.dp)
                         )
                     }
                 }
@@ -368,7 +364,7 @@ fun YandexPlayerWidget(
                     contentDescription = "Следующий трек",
                     containerColor = CockpitSurfaceBright,
                     contentColor = TextPrimary,
-                    size = 60.dp,
+                    size = 50.dp,
                     testTag = "player_next_button",
                     onClick = onNext
                 )
@@ -378,7 +374,7 @@ fun YandexPlayerWidget(
                     contentDescription = "Медиа USB и Bluetooth",
                     containerColor = CockpitSurfaceElevated,
                     contentColor = TelemetryCyan,
-                    size = 52.dp,
+                    size = 48.dp,
                     testTag = "player_usb_media_button",
                     onClick = onOpenUsbMedia
                 )

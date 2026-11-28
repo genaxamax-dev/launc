@@ -296,6 +296,24 @@ class AppRepository(private val context: Context) {
         context.startActivity(intent)
     }
 
+    fun openYandexWeather(lat: Double?, lon: Double?): Result<Unit> {
+        val packages = listOf("com.yandex.weather", "ru.yandex.weatherplugin")
+        for (pkg in packages) {
+            val launch = pm.getLaunchIntentForPackage(pkg)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (launch != null) {
+                return runCatching { context.startActivity(launch) }
+            }
+        }
+        val webUrl = if (lat != null && lon != null) {
+            String.format(java.util.Locale.US, "https://yandex.ru/pogoda/?lat=%.4f&lon=%.4f", lat, lon)
+        } else {
+            "https://yandex.ru/pogoda/"
+        }
+        return openUrl(webUrl)
+    }
+
     fun openAppInfo(packageName: String) {
         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.fromParts("package", packageName, null)

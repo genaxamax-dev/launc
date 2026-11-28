@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -53,9 +54,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.BuildConfig
+import com.example.model.HeadlightMode
 import com.example.model.LauncherSettings
 import com.example.model.MediaPlayerState
 import com.example.model.UpdateCheckState
+import com.example.model.WeatherSourceMode
+import com.example.model.WeatherState
 import com.example.model.WifiConnectionStatus
 import com.example.model.WifiState
 import com.example.ui.theme.ActiveEmerald
@@ -76,6 +80,8 @@ fun LauncherSettingsScreen(
     settings: LauncherSettings,
     mediaState: MediaPlayerState,
     wifiState: WifiState,
+    weatherState: WeatherState,
+    headlightsOn: Boolean,
     updateState: UpdateCheckState,
     onWallpaperDimChange: (Float) -> Unit,
     onToggleLeftInset: (Boolean) -> Unit,
@@ -83,6 +89,11 @@ fun LauncherSettingsScreen(
     onToggleShowSeconds: (Boolean) -> Unit,
     onToggleLightweightBackground: (Boolean) -> Unit,
     onToggleReduceAnimations: (Boolean) -> Unit,
+    onHeadlightModeChange: (HeadlightMode) -> Unit,
+    onWeatherModeChange: (WeatherSourceMode) -> Unit,
+    onSaveWeatherConfig: (String, String) -> Unit,
+    onRefreshWeatherNow: () -> Unit,
+    onOpenYandexWeather: () -> Unit,
     onSaveGithubRepo: (String) -> Unit,
     onToggleAutoCheckUpdates: (Boolean) -> Unit,
     onCheckUpdatesNow: () -> Unit,
@@ -97,10 +108,22 @@ fun LauncherSettingsScreen(
     BackHandler(onBack = onBack)
     var showAdbDialog by remember { mutableStateOf(false) }
     var repoDraft by remember { mutableStateOf(settings.githubRepo) }
+    var cityDraft by remember { mutableStateOf(settings.weatherCity) }
+    var yandexKeyDraft by remember { mutableStateOf(settings.yandexWeatherApiKey) }
 
     LaunchedEffect(settings.githubRepo) {
         if (settings.githubRepo.isNotEmpty()) {
             repoDraft = settings.githubRepo
+        }
+    }
+    LaunchedEffect(settings.weatherCity) {
+        if (cityDraft.isEmpty() && settings.weatherCity.isNotEmpty()) {
+            cityDraft = settings.weatherCity
+        }
+    }
+    LaunchedEffect(settings.yandexWeatherApiKey) {
+        if (yandexKeyDraft.isEmpty() && settings.yandexWeatherApiKey.isNotEmpty()) {
+            yandexKeyDraft = settings.yandexWeatherApiKey
         }
     }
 
@@ -283,7 +306,178 @@ fun LauncherSettingsScreen(
                 }
             }
 
-            // Section 2: Performance Optimization for Weak Hardware
+            // Section 2: Headlights & Weather
+            SettingsCard(title = "ФАРЫ АВТО И ПОГОДА") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DiagnosticRow(
+                        label = "Фары Haval M6 сейчас",
+                        value = if (headlightsOn) "Включены (вечер/ночь)" else "Выключены (день)",
+                        accent = if (headlightsOn) YandexGold else TelemetryCyan
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        HeadlightMode.entries.forEach { mode ->
+                            val selected = settings.headlightMode == mode
+                            OutlinedButton(
+                                onClick = { onHeadlightModeChange(mode) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .testTag("settings_headlight_${mode.name.lowercase()}"),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (selected) HavalAmber else CockpitHairline
+                                ),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (selected) HavalAmber.copy(alpha = 0.2f) else CockpitSurface
+                                )
+                            ) {
+                                Text(
+                                    text = mode.label,
+                                    color = if (selected) HavalAmber else TextPrimary
+                                )
+                            }
+                        }
+                    }
+
+                    SettingsSwitchRow(
+                        title = "Только погода по времени года (офлайн)",
+                        subtitle = "Если выключено — берётся онлайн-прогноз (или Яндекс.Погода при наличии API-ключа) с резервом по сезону",
+                        checked = settings.weatherMode == WeatherSourceMode.SEASONAL_ONLY,
+                        testTag = "settings_seasonal_weather_switch",
+                        onCheckedChange = { seasonalOnly ->
+                            onWeatherModeChange(
+                                if (seasonalOnly) WeatherSourceMode.SEASONAL_ONLY
+                                else WeatherSourceMode.AUTO_NETWORK_OR_SEASON
+                            )
+                        }
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = cityDraft,
+                            onValueChange = { cityDraft = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("settings_weather_city_input"),
+                            label = { Text("Город (пусто = авто по IP)") },
+                            placeholder = { Text("например: Москва") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = TelemetryCyan,
+                                unfocusedBorderColor = CockpitHairline,
+                                focusedContainerColor = CockpitSurface,
+                                unfocusedContainerColor = CockpitSurface,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedLabelColor = TelemetryCyan,
+                                unfocusedLabelColor = TextSecondary
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = yandexKeyDraft,
+                            onValueChange = { yandexKeyDraft = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("settings_yandex_weather_key_input"),
+                            label = { Text("Ключ API Яндекс.Погоды (опц.)") },
+                            placeholder = { Text("X-Yandex-Weather-Key") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = YandexGold,
+                                unfocusedBorderColor = CockpitHairline,
+                                focusedContainerColor = CockpitSurface,
+                                unfocusedContainerColor = CockpitSurface,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedLabelColor = YandexGold,
+                                unfocusedLabelColor = TextSecondary
+                            )
+                        )
+
+                        Button(
+                            onClick = { onSaveWeatherConfig(cityDraft, yandexKeyDraft) },
+                            modifier = Modifier
+                                .height(54.dp)
+                                .testTag("settings_save_weather_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = TelemetryCyan,
+                                contentColor = CockpitObsidian
+                            )
+                        ) {
+                            Text("Сохранить")
+                        }
+                    }
+
+                    DiagnosticRow(
+                        label = "Текущая погода (${weatherState.sourceLabel})",
+                        value = "${weatherState.cityName}: ${weatherState.temperatureC}°C • ${weatherState.conditionLabel}",
+                        accent = ActiveEmerald
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = onRefreshWeatherNow,
+                            enabled = !weatherState.isLoading,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp)
+                                .testTag("settings_refresh_weather_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CockpitSurfaceBright,
+                                contentColor = TelemetryCyan
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Обновить погоду")
+                        }
+
+                        Button(
+                            onClick = onOpenYandexWeather,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp)
+                                .testTag("settings_open_yandex_weather_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = YandexGold.copy(alpha = 0.2f),
+                                contentColor = YandexGold
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.WbSunny,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Яндекс.Погода")
+                        }
+                    }
+                }
+            }
+
+            // Section 3: Performance Optimization for Weak Hardware
             SettingsCard(title = "ОПТИМИЗАЦИЯ ДЛЯ СЛАБОГО ЖЕЛЕЗА (i.MX8Q)") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SettingsSwitchRow(

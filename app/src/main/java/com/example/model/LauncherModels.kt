@@ -100,6 +100,59 @@ data class WifiState(
     val linkSpeedMbps: Int = 0
 )
 
+enum class HeadlightMode(val label: String) {
+    AUTO("Авто (время)"),
+    ALWAYS_ON("Вечер (вкл)"),
+    ALWAYS_OFF("День (выкл)")
+}
+
+enum class WeatherSourceMode {
+    AUTO_NETWORK_OR_SEASON,
+    SEASONAL_ONLY
+}
+
+enum class Season(val label: String) {
+    WINTER("Зима"),
+    SPRING("Весна"),
+    SUMMER("Лето"),
+    AUTUMN("Осень")
+}
+
+enum class WeatherCondition {
+    CLEAR,
+    PARTLY_CLOUDY,
+    CLOUDY,
+    RAIN,
+    SNOW,
+    THUNDERSTORM,
+    FOG
+}
+
+@Immutable
+data class WeatherState(
+    val temperatureC: Int = 2,
+    val feelsLikeC: Int? = null,
+    val condition: WeatherCondition = WeatherCondition.CLOUDY,
+    val conditionLabel: String = "Пасмурно",
+    val cityName: String = "По времени года",
+    val sourceLabel: String = "По времени года",
+    val season: Season = Season.AUTUMN,
+    val isNight: Boolean = false,
+    val windSpeedMs: Int? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val isLoading: Boolean = false
+)
+
+@Immutable
+data class ClimateState(
+    val targetTempC: Float = 22.0f,
+    val cabinTempC: Float? = null,
+    val isAcOn: Boolean = true,
+    val isHardwareSynced: Boolean = false,
+    val statusLabel: String = "Салон • Haval M6"
+)
+
 @Immutable
 data class LauncherSettings(
     val wallpaperDim: Float = 0.44f,
@@ -111,6 +164,12 @@ data class LauncherSettings(
     val githubRepo: String = "",
     val autoCheckUpdates: Boolean = true,
     val lastUpdateCheckMs: Long = 0L,
+    val climateTempC: Float = 22.0f,
+    val climateAcOn: Boolean = true,
+    val headlightMode: HeadlightMode = HeadlightMode.AUTO,
+    val weatherMode: WeatherSourceMode = WeatherSourceMode.AUTO_NETWORK_OR_SEASON,
+    val weatherCity: String = "",
+    val yandexWeatherApiKey: String = "",
     val pinnedPackages: List<String> = listOf(
         "ru.yandex.music",
         "com.adayo.ora.radio",

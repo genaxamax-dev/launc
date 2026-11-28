@@ -18,6 +18,8 @@
         </intent>
         <package android:name="ru.yandex.music" />
         <package android:name="YandexMusicLite.KorenskoyR" />
+        <package android:name="com.yandex.weather" />
+        <package android:name="ru.yandex.weatherplugin" />
         <package android:name="com.adayo.ora.radio" />
         <package android:name="com.adayo.media" />
         <package android:name="com.adayo.bluetooth" />

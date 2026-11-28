@@ -11,10 +11,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -38,13 +44,14 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -56,7 +63,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.LauncherDestination
+import com.example.model.Season
 import com.example.model.UpdateCheckState
+import com.example.model.WeatherCondition
+import com.example.model.WeatherState
 import com.example.ui.LauncherViewModel
 import com.example.ui.components.CockpitBottomDock
 import com.example.ui.components.CockpitTopBar
@@ -69,8 +79,10 @@ import com.example.ui.theme.CockpitSurface
 import com.example.ui.theme.CockpitSurfaceElevated
 import com.example.ui.theme.HavalAmber
 import com.example.ui.theme.M6LauncherTheme
+import com.example.ui.theme.TelemetryCyan
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.YandexGold
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -110,6 +122,9 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
     val destination by viewModel.destination.collectAsStateWithLifecycle()
     val mediaState by viewModel.mediaState.collectAsStateWithLifecycle()
     val wifiState by viewModel.wifiState.collectAsStateWithLifecycle()
+    val climateState by viewModel.climateState.collectAsStateWithLifecycle()
+    val weatherState by viewModel.weatherState.collectAsStateWithLifecycle()
+    val headlightsOn by viewModel.headlightsOn.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val filteredApps by viewModel.filteredApps.collectAsStateWithLifecycle()
@@ -118,22 +133,29 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
 
     var activeUpdateDialog by remember { mutableStateOf<UpdateCheckState.UpdateAvailable?>(null) }
+    var showWeatherDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Decode wallpaper once in RGB_565 (50% less RAM) on IO thread only if enabled
+    // Decode day or night (headlights ON) wallpaper in RGB_565 (50% less RAM) on IO thread
     val heroBitmap by produceState<ImageBitmap?>(
         initialValue = null,
-        key1 = settings.lightweightBackground
+        key1 = settings.lightweightBackground,
+        key2 = headlightsOn
     ) {
         value = if (settings.lightweightBackground) {
             null
         } else {
+            val resId = if (headlightsOn) {
+                R.drawable.img_haval_m6_hero_night
+            } else {
+                R.drawable.haval_m6_hero
+            }
             withContext(Dispatchers.IO) {
                 runCatching {
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeResource(context.resources, R.drawable.haval_m6_hero, bounds)
+                    BitmapFactory.decodeResource(context.resources, resId, bounds)
                     var sampleSize = 1
                     while (bounds.outWidth / sampleSize > 1920) {
                         sampleSize *= 2
@@ -142,7 +164,7 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                         inSampleSize = sampleSize
                         inPreferredConfig = Bitmap.Config.RGB_565
                     }
-                    BitmapFactory.decodeResource(context.resources, R.drawable.haval_m6_hero, opts)
+                    BitmapFactory.decodeResource(context.resources, resId, opts)
                         ?.asImageBitmap()
                 }.getOrNull()
             }
@@ -179,6 +201,10 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(CockpitObsidian.copy(alpha = settings.wallpaperDim))
+            )
+            WeatherAtmosphereOverlay(
+                weatherState = weatherState,
+                reduceAnimations = settings.reduceAnimations
             )
         } else {
             // Ultra-lightweight carbon gradient background (0 texture RAM)
@@ -247,10 +273,16 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                 ) {
                     if (destination == LauncherDestination.HOME) {
                         CockpitTopBar(
-                            activeSourceLabel = mediaState.activeSourceLabel,
+                            climateState = climateState,
+                            weatherState = weatherState,
+                            reduceAnimations = settings.reduceAnimations,
                             wifiState = wifiState,
                             updateState = updateState,
-                            showSeconds = settings.showSecondsInClock,
+                            onIncreaseClimateTemp = { viewModel.increaseClimateTemp() },
+                            onDecreaseClimateTemp = { viewModel.decreaseClimateTemp() },
+                            onToggleClimateAc = { viewModel.toggleClimateAc() },
+                            onOpenClimateApp = { viewModel.launchClimate() },
+                            onWeatherClick = { showWeatherDialog = true },
                             onWifiClick = { viewModel.openWifiSettings() },
                             onUpdateClick = { activeUpdateDialog = it },
                             onCycleDim = { viewModel.cycleWallpaperDimPreset() },
@@ -301,6 +333,8 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                                     settings = settings,
                                     mediaState = mediaState,
                                     wifiState = wifiState,
+                                    weatherState = weatherState,
+                                    headlightsOn = headlightsOn,
                                     updateState = updateState,
                                     onWallpaperDimChange = { viewModel.setWallpaperDim(it) },
                                     onToggleLeftInset = { viewModel.setEnforceHavalLeftInset(it) },
@@ -308,6 +342,11 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                                     onToggleShowSeconds = { viewModel.setShowSecondsInClock(it) },
                                     onToggleLightweightBackground = { viewModel.setLightweightBackground(it) },
                                     onToggleReduceAnimations = { viewModel.setReduceAnimations(it) },
+                                    onHeadlightModeChange = { viewModel.setHeadlightMode(it) },
+                                    onWeatherModeChange = { viewModel.setWeatherMode(it) },
+                                    onSaveWeatherConfig = { city, key -> viewModel.saveWeatherConfig(city, key) },
+                                    onRefreshWeatherNow = { viewModel.refreshWeather(manual = true) },
+                                    onOpenYandexWeather = { viewModel.openYandexWeather() },
                                     onSaveGithubRepo = { viewModel.saveGithubRepo(it) },
                                     onToggleAutoCheckUpdates = { viewModel.setAutoCheckUpdates(it) },
                                     onCheckUpdatesNow = { viewModel.checkForUpdates(manual = true) },
@@ -399,6 +438,129 @@ private fun M6LauncherRoot(viewModel: LauncherViewModel) {
                     }
                 }
             )
+        }
+
+        if (showWeatherDialog) {
+            AlertDialog(
+                onDismissRequest = { showWeatherDialog = false },
+                containerColor = CockpitSurfaceElevated,
+                titleContentColor = TextPrimary,
+                textContentColor = TextSecondary,
+                title = {
+                    val tempStr = if (weatherState.temperatureC > 0) "+${weatherState.temperatureC}°C" else "${weatherState.temperatureC}°C"
+                    Text("${weatherState.cityName} • $tempStr")
+                },
+                text = {
+                    val details = buildString {
+                        appendLine("Условия: ${weatherState.conditionLabel}")
+                        weatherState.feelsLikeC?.let {
+                            val feel = if (it > 0) "+$it°C" else "$it°C"
+                            appendLine("Ощущается как: $feel")
+                        }
+                        weatherState.windSpeedMs?.let {
+                            appendLine("Ветер: $it м/с")
+                        }
+                        appendLine("Сезон: ${weatherState.season.label}")
+                        appendLine("Источник: ${weatherState.sourceLabel}")
+                        append("Фары авто: ${if (headlightsOn) "включены" else "выключены"}")
+                    }
+                    Text(
+                        text = details,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.openYandexWeather()
+                            showWeatherDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = YandexGold,
+                            contentColor = CockpitObsidian
+                        )
+                    ) {
+                        Text("Яндекс.Погода")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            viewModel.refreshWeather(manual = true)
+                        }
+                    ) {
+                        Text("Обновить", color = TelemetryCyan)
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeatherAtmosphereOverlay(
+    weatherState: WeatherState,
+    reduceAnimations: Boolean
+) {
+    val seasonTint = when (weatherState.season) {
+        Season.WINTER -> Color(0xFF0E253D).copy(alpha = 0.14f)
+        Season.AUTUMN -> Color(0xFF2B1B0E).copy(alpha = 0.08f)
+        Season.SPRING -> Color(0xFF0F261D).copy(alpha = 0.05f)
+        Season.SUMMER -> Color.Transparent
+    }
+    if (seasonTint != Color.Transparent) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(seasonTint)
+        )
+    }
+
+    val showSnow = weatherState.condition == WeatherCondition.SNOW
+    val showRain = weatherState.condition == WeatherCondition.RAIN ||
+        weatherState.condition == WeatherCondition.THUNDERSTORM
+    if (!showSnow && !showRain) return
+
+    val phase = if (reduceAnimations) {
+        0.35f
+    } else {
+        val transition = rememberInfiniteTransition(label = "weather_fx")
+        val animated by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = if (showSnow) 6500 else 1600, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "weather_phase"
+        )
+        animated
+    }
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val count = if (reduceAnimations) 16 else 24
+        for (i in 0 until count) {
+            val seedX = ((i * 73 + 19) % 100) / 100f
+            val baseY = ((i * 41 + 11) % 100) / 100f
+            val yFrac = (baseY + phase * (if (showSnow) 1f else 1.8f)) % 1f
+            val x = size.width * seedX
+            val y = size.height * yFrac
+
+            if (showSnow) {
+                val radius = 2.5f + (i % 3) * 1.4f
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.42f),
+                    radius = radius,
+                    center = Offset(x, y)
+                )
+            } else {
+                drawLine(
+                    color = TelemetryCyan.copy(alpha = 0.25f),
+                    start = Offset(x, y),
+                    end = Offset(x - 6f, y + 18f),
+                    strokeWidth = 1.6f
+                )
+            }
         }
     }
 }
